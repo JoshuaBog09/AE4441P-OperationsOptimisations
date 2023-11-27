@@ -108,9 +108,6 @@ for i in range(number_of_time_steps - 1):
     C9[i, 1] = model.addConstr(y[i + 1] - y[i], '>=', -v_max_y, name=f"C9_{i},1")
 
 
-
-
-
 model.setObjective(gp.quicksum(b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
 
 model.update()
@@ -127,4 +124,12 @@ for i in range(number_of_time_steps):
     y_result.append(y[i].x)
 
 plt.plot(x_result, y_result, marker = '.')
+
+for obstacle in list_of_obstacles:
+    x = [obstacle.x_upper_right, obstacle.x_upper_right, 
+         obstacle.x_lower_left, obstacle.x_lower_left, obstacle.x_upper_right]
+    y = [obstacle.y_upper_right, obstacle.y_lower_left, 
+         obstacle.y_lower_left, obstacle.y_upper_right, obstacle.y_upper_right]
+    plt.plot(x,y)
+
 plt.show()
