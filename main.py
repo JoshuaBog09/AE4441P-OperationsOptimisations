@@ -16,7 +16,7 @@ list_of_obstacles = []
 
 model = gp.Model("Path Planning")
 
-list_of_obstacles.append(SquareObsticale(250, 150, 350, 250))
+list_of_obstacles.append(SquareObsticale(250, 50, 350, 250))
 
 # Creation of variables
 
@@ -73,7 +73,7 @@ for i in range(number_of_time_steps):
     C2[i, 0] = model.addLConstr(y[i] - x_goal[1], '<=', R * (1 - b_goal[i]), name=f"C2_{i},0")
     C2[i, 1] = model.addLConstr(y[i] - x_goal[1], '>=', -R * (1 - b_goal[i]), name=f"C2_{i},1")
 
-model.addConstr(gp.quicksum(b_goal[i] for i in range(number_of_time_steps)), '=', 1, name="C3")
+model.addLConstr(gp.quicksum(b_goal[i] for i in range(number_of_time_steps)), '=', 1, name="C3")
 
 # Constraints for ensuring the robot stays in the map
 
