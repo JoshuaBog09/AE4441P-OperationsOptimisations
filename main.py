@@ -96,7 +96,7 @@ for i, obstacle in enumerate(list_of_obstacles):
     C6[i, 1] = model.addLConstr(x[i], '>=', obstacle.x_upper_right - R * b_in[i, 1], name=f"C6_{i},1")
     C7[i, 0] = model.addLConstr(y[i], '<=', obstacle.y_lower_left + R * b_in[i, 2], name=f"C7_{i},0")
     C6[i, 1] = model.addLConstr(y[i], '>=', obstacle.y_upper_right - R * b_in[i, 3], name=f"C7_{i},1")
-    model.addConstr(gp.quicksum(b_in[i, j] for j in range(4)), '<=', 3, name="C8")
+    model.addLConstr(gp.quicksum(b_in[i, j] for j in range(4)), '<=', 3, name="C8")
 
 # Constraints for ensuring the aircraft doesn't break laws of physics
 C8 = {}
