@@ -47,7 +47,7 @@ normals = 60
 x_begin = (10, 50)
 
 # final position of the robot
-x_goal = (600, 200)
+x_goal = (250, 300)
 
 # map limits
 
@@ -172,7 +172,17 @@ for i in range(number_of_time_steps):
     y_result.append(y[i].x)
 
 
-plt.plot(x_result, y_result, marker='.')
+# plt.plot(x_result, y_result, marker='.')
+
+x_plot = []
+y_plot = []
+
+for i in range(len(y_result)):
+    if math.isclose(y_result[i], x_goal[1], abs_tol=1e-9) and math.isclose(x_result[i], x_goal[0], abs_tol=1e-9):
+        break
+
+    x_plot.append(x_result[i])
+    y_plot.append(y_result[i])
 
 for obstacle in list_of_obstacles:
     x = [obstacle.x_upper_right, obstacle.x_upper_right,
@@ -182,4 +192,7 @@ for obstacle in list_of_obstacles:
     plt.plot(x, y)
 plt.xlim(x_lim)
 plt.ylim(y_lim)
+
+plt.plot(x_plot, y_plot, marker='.', label="Path")
+
 plt.show()
