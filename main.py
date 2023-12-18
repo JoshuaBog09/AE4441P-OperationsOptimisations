@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import math
 import numpy as np
+import networkx as nx
 
 
 def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, v_max=10, u_max=0.1, r_plan=150, number_of_steps=250,
@@ -128,8 +129,8 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, v_max=10, u_max=
                 (x[i + 1, 0] - x[i, 0]) * np.cos(2 * np.pi / NORMALS * n) + (x[i + 1, 1] - x[i, 1]) * np.sin(
                     2 * np.pi / NORMALS * n), '<=', v_max, name=f"COST_V_MAX[time={i},normal={n}]")
 
-            # CONST_V_MAX[i, n] = model.addLConstr(
-            #     (x[i + 1, 0] - x[i, 0]) * 1 + (x[i + 1, 1] - x[i, 1]) * 0, '<=', v_max, name=f"COST_V_MAX[time={i},normal={n}]")
+            # CONST_V_MAX[i, n] = model.addLConstr( (x[i + 1, 0] - x[i, 0]) * 1 + (x[i + 1, 1] - x[i, 1]) * 0, '<=',
+            # v_max, name=f"COST_V_MAX[time={i},normal={n}]")
 
             # Input constrain
             CONST_U_MAX[i, n] = model.addLConstr(
@@ -198,6 +199,43 @@ def plot(path, list_of_obstacles, map_bound=np.array([[0, 0], [600, 600]])):
     plt.show()
 
 
+# ================== COLISION DETECTION ==========================
+def collision_detection(x, list_of_obstacles):
+    for i in range(len(list_of_obstacles)):
+        # Check if point is in obstacle
+        if list_of_obstacles[i][0, 0] <= x[0] <= list_of_obstacles[i][1, 0] and list_of_obstacles[i][0, 1] <= x[1] <= \
+                list_of_obstacles[i][1, 1]:
+            return True
+    return False
+
+
+# ================== GENERATE NODES ======================
+def generate_map(list_of_obstacles, map_bounds, x_goal, skip_factor):
+    connection_list = nx.Graph([])
+    for i in range(map_bounds[0, 0], map_bounds[1, 0], skip_factor):
+        for j in range(map_bounds[0, 1], map_bounds[1, 1], skip_factor):
+            if collision_detection([i, j], list_of_obstacles):
+                continue
+            else:
+                connection_list.add_node(f"X:{i}, Y:{j}", pos=(i, j))
+                for k in [-1*skip_factor, 0, 1*skip_factor]:
+                    for l in [-1*skip_factor, 0, 1*skip_factor]:
+                        if collision_detection([i + k, j + l], list_of_obstacles):
+                            continue
+                        else:
+                            connection_list.add_edge(f"X:{i}, Y:{j}", f"X:{i+k}, Y:{j+l}", weight=math.sqrt(k ** 2 + l ** 2))
+    return connection_list
+
+
+# ================== A* ALGORITHM ======================
+
+def cost_cal(graph, x_goal):
+    cost = nx.single_source_bellman_ford_path_length(graph, f"X:{x_goal[0]}, Y:{x_goal[1]}")
+
+    return dict(cost)
+
+# ================== MAIN =======================================
+
 if __name__ == '__main__':
     # Model constants
     R = 1e6  # Big number.
@@ -215,19 +253,24 @@ if __name__ == '__main__':
     v_init = [0, 0]  # Initial velocity of the vehicle.
 
     # Final conditions of the vehicle at the goal.
-    x_goal = (215, 275)  # Goal position
+    x_goal = (300, 300)  # Goal position
 
     # Limit on parameters
     map_bound = np.array([[0, 0], [400, 350]])  # Map bounds (dx2 array with [lower_left, upper_right])
     v_max = 5  # Maximum velocity (scalar)
-    u_max = 0.2  # Maximum input (scalar)
+    u_max = 5  # Maximum input (scalar)
 
     r_plan = 150
     number_of_steps = 300
     NORMALS = 16
     DIMENSION = 2
 
-    path, objective_resutl = receding_horizon(x_init, v_init, list_of_obstacles, x_goal, v_max, u_max, r_plan,
-                                              number_of_steps, NORMALS, DIMENSION, map_bound)
+    point_graph = generate_map(list_of_obstacles, map_bound, x_goal, 1)
+    cost_array = cost_cal(point_graph, x_goal)
+    print(cost_array['X:0, Y:0'])
+    # plt.show()
 
-    plot(path, list_of_obstacles, map_bound)
+    # path, objective_resutl = receding_horizon(x_init, v_init, list_of_obstacles, x_goal, v_max, u_max, r_plan,
+    #                                           number_of_steps, NORMALS, DIMENSION, map_bound)
+    #
+    # plot(path, list_of_obstacles, map_bound)
