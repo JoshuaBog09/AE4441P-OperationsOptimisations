@@ -2,6 +2,7 @@ import gurobipy as gp
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import math
+import re
 import numpy as np
 import networkx as nx
 
@@ -172,22 +173,23 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, v_max=10, u_max=
 
     return np.array([x_plot, y_plot]), objective_value
 
-    # ============== PLOT RESULTS =================================
+
+# ============== PLOT RESULTS =================================
 
 
-def plot(path, list_of_obstacles, map_bound=np.array([[0, 0], [600, 600]])):
+def plot(path, obstacle_list, map_limit=np.array([[0, 0], [600, 600]])):
     # Define figure and axis.
     fig, ax = plt.subplots()
 
     # Set limits
-    ax.set_xlim(map_bound[0, 0], map_bound[1, 0])
-    ax.set_ylim(map_bound[0, 1], map_bound[1, 1])
+    ax.set_xlim(map_limit[0, 0], map_limit[1, 0])
+    ax.set_ylim(map_limit[0, 1], map_limit[1, 1])
 
     # Plot vehicle location
     ax.plot(path[0], path[1], marker=".", color='red', label="Path")
 
     # Plot obstacles
-    for obstacle in list_of_obstacles:
+    for obstacle in obstacle_list:
         origin = obstacle[0]
         delta = obstacle[1] - obstacle[0]
         width = delta[0]
@@ -199,47 +201,85 @@ def plot(path, list_of_obstacles, map_bound=np.array([[0, 0], [600, 600]])):
     plt.show()
 
 
-# ================== COLISION DETECTION ==========================
-def collision_detection(x, list_of_obstacles):
-    for i in range(len(list_of_obstacles)):
+# ================== PLOT DISTANCE TO GOAL HEAT MAP ======================
+def plot_distance_to_goal_heat_map(obstacle_list, distance_graph, skip_factor, map_limit=np.array([[0, 0], [600, 600]])):
+    distance_list = np.zeros(shape=(map_limit[1, 0] // skip_factor, map_limit[1, 1] // skip_factor))
+    for i in range(map_limit[0, 0], map_limit[1, 0], skip_factor):
+        for j in range(map_limit[0, 1], map_limit[1, 1], skip_factor):
+            if collision_detection([i, j], obstacle_list):
+                distance_list[i, j] = 0
+            else:
+                distance_list[i, j] = distance_graph[f"X:{i}, Y:{j}"]
+
+    # Define figure and axis.
+    fig, ax = plt.subplots()
+
+    # Set limits
+    ax.set_xlim(map_limit[0, 0], map_limit[1, 0])
+    ax.set_ylim(map_limit[0, 1], map_limit[1, 1])
+
+    distance_list = np.flip(distance_list, 0)
+    distance_list = np.rot90(distance_list, -1)
+
+    im = ax.imshow(distance_list, origin='lower', cmap='plasma', interpolation='none')
+
+    plt.colorbar(im, ax=ax)
+
+    # Plot obstacles
+    for obstacle in obstacle_list:
+        origin = obstacle[0]
+        delta = obstacle[1] - obstacle[0]
+        width = delta[0]
+        height = delta[1]
+
+        ax.add_patch(Rectangle(origin, width, height, color='dimgrey'))
+
+    plt.show()
+
+
+# ================== COLLISION DETECTION ==========================
+def collision_detection(x, obstacle_list):
+    for i in range(len(obstacle_list)):
         # Check if point is in obstacle
-        if list_of_obstacles[i][0, 0] <= x[0] <= list_of_obstacles[i][1, 0] and list_of_obstacles[i][0, 1] <= x[1] <= \
-                list_of_obstacles[i][1, 1]:
+        if obstacle_list[i][0, 0] <= x[0] <= obstacle_list[i][1, 0] and obstacle_list[i][0, 1] <= x[1] <= \
+                obstacle_list[i][1, 1]:
             return True
     return False
 
 
 # ================== GENERATE NODES ======================
-def generate_map(list_of_obstacles, map_bounds, x_goal, skip_factor):
+def generate_map(obstacle_list, map_bounds, skip_factor):
     connection_list = nx.Graph([])
     for i in range(map_bounds[0, 0], map_bounds[1, 0], skip_factor):
         for j in range(map_bounds[0, 1], map_bounds[1, 1], skip_factor):
-            if collision_detection([i, j], list_of_obstacles):
+            if collision_detection([i, j], obstacle_list):
                 continue
             else:
                 connection_list.add_node(f"X:{i}, Y:{j}", pos=(i, j))
-                for k in [-1*skip_factor, 0, 1*skip_factor]:
-                    for l in [-1*skip_factor, 0, 1*skip_factor]:
-                        if collision_detection([i + k, j + l], list_of_obstacles):
+                for k in [-1 * skip_factor, 0, 1 * skip_factor]:
+                    for l in [-1 * skip_factor, 0, 1 * skip_factor]:
+                        if collision_detection([i + k, j + l], obstacle_list):
                             continue
                         else:
-                            connection_list.add_edge(f"X:{i}, Y:{j}", f"X:{i+k}, Y:{j+l}", weight=math.sqrt(k ** 2 + l ** 2))
+                            connection_list.add_edge(f"X:{i}, Y:{j}", f"X:{i + k}, Y:{j + l}",
+                                                     weight=math.sqrt(k ** 2 + l ** 2))
     return connection_list
 
 
 # ================== A* ALGORITHM ======================
 
-def cost_cal(graph, x_goal):
-    cost = nx.single_source_bellman_ford_path_length(graph, f"X:{x_goal[0]}, Y:{x_goal[1]}")
+def cost_cal(graph, goal_pos):
+    cost = nx.single_source_bellman_ford_path_length(graph, f"X:{goal_pos[0]}, Y:{goal_pos[1]}")
 
     return dict(cost)
+
 
 # ================== MAIN =======================================
 
 if __name__ == '__main__':
     # Model constants
     R = 1e6  # Big number.
-    # NORMALS = 5  # Number of normals used for vector magnitude calcualtion.
+    # NORMALS = 5  # Number of normals used for vector magnitude calculation.
     # DIMENSION = 2  # Number of dimensions.
     list_of_obstacles = []
     # Define obstacles.
@@ -264,13 +304,13 @@ if __name__ == '__main__':
     number_of_steps = 300
     NORMALS = 16
     DIMENSION = 2
+    skip_factor = 1 # this is a little broken, keep it at 1 for now
 
-    point_graph = generate_map(list_of_obstacles, map_bound, x_goal, 1)
+    point_graph = generate_map(list_of_obstacles, map_bound, skip_factor)
     cost_array = cost_cal(point_graph, x_goal)
-    print(cost_array['X:0, Y:0'])
     # plt.show()
-
+    plot_distance_to_goal_heat_map(list_of_obstacles, cost_array, skip_factor, map_bound)
     # path, objective_resutl = receding_horizon(x_init, v_init, list_of_obstacles, x_goal, v_max, u_max, r_plan,
     #                                           number_of_steps, NORMALS, DIMENSION, map_bound)
-    #
+    # #
     # plot(path, list_of_obstacles, map_bound)
