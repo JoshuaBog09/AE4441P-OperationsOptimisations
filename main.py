@@ -20,9 +20,8 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, dijkstra_map, v_
     # NORMALS = 5  # Number of normals used for vector magnitude calcualtion.
     # DIMENSION = 2  # Number of dimensions.
 
-    # Define obstacles.
-    # list_of_obstacles.append(np.array([[150, 200], [200, 410]]))    # Obstacle bounds (dx2 array with [lower_left, upper_right])
-    # list_of_obstacles.append(np.array([[10, -10], [30, 250]]))
+    # Define obstacles. list_of_obstacles.append(np.array([[150, 200], [200, 410]]))    # Obstacle bounds (dx2 array
+    # with [lower_left, upper_right]) list_of_obstacles.append(np.array([[10, -10], [30, 250]]))
 
     # Initial conditions of the vehicle.
     # x_init = [0, 0]  # Initial position of the vehicle.
@@ -43,12 +42,15 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, dijkstra_map, v_
     x = {}  # Decision variables for the position of the rover.
     u = {}  # Decision variables for the inputs of the rover.
     b_goal = {}  # Boolean indicating whether a node reaches the goal.
+    b_reach = {}  # Boolean indicating whether the goal is reachable.
     b_in = {}  # Boolean used for checking collision with obstacles.
     normal_direction_distance = {}  # Normal direction distance.
     goal_distance = {}  # Distance to goal for each node.
     x_goal_range = {}  # Range of the goal position.
 
     # ================ DEFINE MODEL VARIABLES =========================
+    # Binary deciding if goal is reachable
+    b_reach[0] = model.addVar(vtype=gp.GRB.BINARY, name=f"B_reach")
 
     # Define the variables for each time step.
     for i in range(number_of_time_steps):
@@ -67,7 +69,8 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, dijkstra_map, v_
 
             for n in range(NORMALS):
                 # Normal direction distance
-                normal_direction_distance[i, n] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"normal_direction_distance[time={i},normal={n}]",
+                normal_direction_distance[i, n] = model.addVar(vtype=gp.GRB.CONTINUOUS,
+                                                               name=f"normal_direction_distance[time={i},normal={n}]",
                                                                lb=-10000, ub=10000)
 
             # Binary for obstacle detection.
@@ -99,20 +102,19 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, dijkstra_map, v_
 
     # Constraints for detecting when a node reaches the goal.
 
-    if goal_constrains:
 
-        CONST_X_GOAL = {}
+    CONST_X_GOAL = {}
 
-        for i in range(number_of_time_steps - 1):
-            for d in range(DIMENSION):
-                CONST_X_GOAL[i, d, 0] = model.addLConstr(x[i, d] - x_goal[d], '<=', R * (1 - b_goal[i]),
-                                                         name=f"CONST_X_GOAL[time={i},dim={d},const=0]")
-                CONST_X_GOAL[i, d, 1] = model.addLConstr(x[i, d] - x_goal[d], '>=', -R * (1 - b_goal[i]),
-                                                         name=f"CONST_X_GOAL[time={i},dim={d},const=1]")
+    for i in range(number_of_time_steps - 1):
+        for d in range(DIMENSION):
+            CONST_X_GOAL[i, d, 0] = model.addLConstr(x[i, d] - x_goal[d], '<=', R * (1 - b_goal[i]),
+                                                     name=f"CONST_X_GOAL[time={i},dim={d},const=0]")
+            CONST_X_GOAL[i, d, 1] = model.addLConstr(x[i, d] - x_goal[d], '>=', -R * (1 - b_goal[i]),
+                                                     name=f"CONST_X_GOAL[time={i},dim={d},const=1]")
 
-        # Constraint for ensuring exactly one node reaches the goal.
-        CONST_REACH_GOAL = model.addLConstr(gp.quicksum(b_goal[i] for i in range(number_of_time_steps)), '=', 1,
-                                            name="CONST_REACH_GOAL")
+    # Constraint for ensuring exactly one node reaches the goal.
+    CONST_REACH_GOAL = model.addLConstr(gp.quicksum(b_goal[i] for i in range(number_of_time_steps)), '=', b_reach[0],
+                                        name="CONST_REACH_GOAL")
 
     # Constraints for ensuring the robot does not collide with the obstacles.
     CONST_OBSTACLE = {}
@@ -168,8 +170,9 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, dijkstra_map, v_
                     x_goal[1] - x[i, 1]) * np.sin(2 * np.pi / NORMALS * n), '=', normal_direction_distance[i, n],
                                                            name=f"CONST_NORMAL_DISTANCE[time={i},normal={n}]")
         # TODO: maybe remove forbidden magic ("gp.max_")
-
-        CONST_GOAL_DISTANCE[i] = model.addConstr(goal_distance[i] == gp.max_(normal_direction_distance[i, n] for n in range(NORMALS)), name=f"CONST_GOAL_DISTANCE[time={i}]")
+        CONST_GOAL_DISTANCE[i] = model.addConstr(
+            goal_distance[i] == gp.max_(normal_direction_distance[i, n] for n in range(NORMALS)),
+            name=f"CONST_GOAL_DISTANCE[time={i}]")
 
     # Correlate input and the velocity
     for i in range(number_of_time_steps - 2):
@@ -177,22 +180,20 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, dijkstra_map, v_
             CONST_POS[i, d] = model.addLConstr(x[i + 2, d], '=', 2 * x[i + 1, d] - x[i, d] + u[i + 1, d],
                                                name=f"CONST_POS[time={i},dim={d}]")
 
-    # bulishit for gurobi
+    # **** for gurobi
     object_var = {}
     object_constraint = {}
     object_var[0] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"object_var")
 
-
-
     # TODO: make sure this constraint is allowed
     model.addConstr(object_var[0] == gp.min_(goal_distance[i] for i in range(number_of_time_steps)),
                     name=f"object_constraint")
-    # object_constraint[0] = model.addConstr(object_var[0] == gp.min_(x_goal[0] - x[i, 0] + x_goal[1] - x[i, 1] for i in range(number_of_time_steps)), name=f"object_constraint")
-    # OBJECTIVE = model.setObjective(gp.quicksum(b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
-    OBJECTIVE = model.setObjective(object_var[0], gp.GRB.MINIMIZE)
-
+    # object_constraint[0] = model.addConstr(object_var[0] == gp.min_(x_goal[0] - x[i, 0] + x_goal[1] - x[i,
+    # 1] for i in range(number_of_time_steps)), name=f"object_constraint") OBJECTIVE = model.setObjective(
+    # gp.quicksum(b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
+    OBJECTIVE = model.setObjective(object_var[0] - number_of_time_steps * b_reach[0] + gp.quicksum(b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
     model.update()
-
+    determines = 0
     model.write("models/model.lp")
 
     model.optimize()
@@ -220,7 +221,7 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, dijkstra_map, v_
 # ============== PLOT RESULTS =================================
 
 
-def plot(path, obstacle_list, map_limit=np.array([[0, 0], [600, 600]])):
+def plot(path, x_pos,obstacle_list, map_limit=np.array([[0, 0], [600, 600]])):
     # Define figure and axis.
     fig, ax = plt.subplots()
 
@@ -230,6 +231,7 @@ def plot(path, obstacle_list, map_limit=np.array([[0, 0], [600, 600]])):
 
     # Plot vehicle location
     ax.plot(path[0], path[1], marker=".", color='red', label="Path")
+    ax.plot(x_pos[0], x_pos[1], marker="*", color='green', label="Goal")
 
     # Plot obstacles
     for obstacle in obstacle_list:
@@ -331,21 +333,25 @@ if __name__ == '__main__':
         np.array([[150, 200], [200, 410]]))  # Obstacle bounds (dx2 array with [lower_left, upper_right])
     list_of_obstacles.append(np.array([[10, -10], [30, 250]]))
     list_of_obstacles.append(np.array([[50, 50], [80, 400]]))
+    list_of_obstacles.append(np.array([[250, 250], [420, 260]]))
+    list_of_obstacles.append(np.array([[250, 250], [260, 335]]))
+    list_of_obstacles.append(np.array([[270, 210], [420, 220]]))
+    list_of_obstacles.append(np.array([[390, 210], [420, 260]]))
 
     # Initial conditions of the vehicle.
-    x_init = [0, 0]  # Initial position of the vehicle.
+    x_init = [300, 200]  # Initial position of the vehicle.
     v_init = [0, 0]  # Initial velocity of the vehicle.
 
     # Final conditions of the vehicle at the goal.
-    x_goal = (150, 50)  # Goal position
+    x_goal = (340, 270)  # Goal position
 
     # Limit on parameters
     map_bound = np.array([[0, 0], [400, 350]])  # Map bounds (dx2 array with [lower_left, upper_right])
     v_max = 5  # Maximum velocity (scalar)
-    u_max = 0.25  # Maximum input (scalar)
+    u_max = 1  # Maximum input (scalar)
 
     r_plan = 150
-    number_of_steps = 180
+    number_of_steps = 40
     NORMALS = 16
     DIMENSION = 2
     skip_factor = 1  # this is a little broken, keep it at 1 for now
@@ -353,9 +359,9 @@ if __name__ == '__main__':
     point_graph = generate_map(list_of_obstacles, map_bound, skip_factor)
     cost_array = cost_cal(point_graph, x_goal)
     # plt.show()
-    # plot_distance_to_goal_heat_map(list_of_obstacles, cost_array, skip_factor, map_bound)
+    plot_distance_to_goal_heat_map(list_of_obstacles, cost_array, skip_factor, map_bound)
     path, objective_result = receding_horizon(x_init, v_init, list_of_obstacles, x_goal, cost_array, v_max, u_max,
                                               r_plan,
                                               number_of_steps, NORMALS, DIMENSION, map_bound, False)
 
-    plot(path, list_of_obstacles, map_bound)
+    plot(path, x_goal, list_of_obstacles, map_bound)
