@@ -7,7 +7,7 @@ import numpy as np
 import networkx as nx
 
 
-def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, dijkstra_map, v_max=10, u_max=0.1, r_plan=150,
+def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map, v_max=10, u_max=0.1, r_plan=150,
                      number_of_steps=250,
                      NORMALS=5, DIMENSION=2, map_bound=np.array([[0, 0], [600, 600]]), goal_constrains=False):
     # Limits of the map, width is 600px, height is 400px
@@ -134,6 +134,9 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, dijkstra_map, v_
                 gp.quicksum(b_in[i, d, k, 0] + b_in[i, d, k, 1] for d in range(DIMENSION)), '<=', 3,
                 name=f"CONST_OBSTACLE_DETECTION[time={i},obs={k}]")
 
+    # TODO: Figure out how "interpolate" the distance map. One idea is to create new collision rhomboids around very
+    #  point and when the an X is in that collision box, then it has that collision box's distance value
+
     # Constraints for ensuring the aircraft doesn't break laws of physics
     CONST_V_MAX = {}
     CONST_U_MAX = {}
@@ -193,7 +196,7 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, dijkstra_map, v_
     # gp.quicksum(b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
     OBJECTIVE = model.setObjective(object_var[0] - number_of_time_steps * b_reach[0] + gp.quicksum(b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
     model.update()
-    determines = 0
+
     model.write("models/model.lp")
 
     model.optimize()
