@@ -47,6 +47,8 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map, v_
     normal_direction_distance = {}  # Normal direction distance.
     goal_distance = {}  # Distance to goal for each node.
     x_goal_range = {}  # Range of the goal position.
+    interpolation_points = {}
+    interpolation_points_in = {}
 
     # ================ DEFINE MODEL VARIABLES =========================
     # Binary deciding if goal is reachable
@@ -84,6 +86,17 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map, v_
 
     # x_goal_range[0] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"B_goal_range", lb=-v_max, ub=v_max)
     # x_goal_range[1] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"B_goal_range", lb=-v_max, ub=v_max)
+
+    # Interpolation squares
+    
+    for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor):
+        for j in range(map_bound[0, 1], map_bound[1, 1], skip_factor):
+            
+            interpolation_points[i,j] = model.addVar(vtype=gp.GRB.BINARY, name=f"Interpolation_point[x_low={i},y_low={j}]")
+
+            for k in range(4):
+
+                interpolation_points_in[i,j,k] = model.addVar(vtype=gp.GRB.BINARY, name=f"Ip_in[x_low={i},y_low={j},bound={k}]")
 
     model.update()
 
@@ -136,6 +149,34 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map, v_
 
     # TODO: Figure out how "interpolate" the distance map. One idea is to create new collision rhomboids around very
     #  point and when the an X is in that collision box, then it has that collision box's distance value
+
+    CONST_IPSQUARES = {}
+    CONST_IPSQUARE1 = {}
+    CONST_IPSQUARE2 = {}
+    
+    trailing_x = x[number_of_time_steps-1, 0]
+    trailing_y = x[number_of_time_steps-1, 1]
+
+    for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor):
+        for j in range(map_bound[0, 1], map_bound[1, 1], skip_factor):
+            trailing_x = 10
+            trailing_y = 10
+
+            CONST_IPSQUARES[i,j,0] = model.addLConstr(trailing_x, ">=", (i - skip_factor/2) - R * interpolation_points_in[i,j,0],
+                                                      name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={0}]")
+            CONST_IPSQUARES[i,j,1] = model.addLConstr(trailing_x, "<", (i + skip_factor/2) + R * interpolation_points_in[i,j,1],
+                                                      name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={1}]")
+            CONST_IPSQUARES[i,j,2] = model.addLConstr(trailing_y, ">=", (j - skip_factor/2) - R * interpolation_points_in[i,j,2],
+                                                      name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={2}]")
+            CONST_IPSQUARES[i,j,3] = model.addLConstr(trailing_y, "<", (j + skip_factor/2) + R * interpolation_points_in[i,j,3],
+                                                      name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={3}]")
+
+            CONST_IPSQUARE1[i,j] = model.addLConstr(gp.quicksum(interpolation_points_in[i,j,k] for k in range(4)) + interpolation_points[i,j], ">=",
+                                                   1,
+                                                   name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j}]")
+
+    CONST_IPSQUARE2[0] = model.addLConstr(gp.quicksum(interpolation_points[i,j] for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor) for j in range(map_bound[0, 1], map_bound[1, 1], skip_factor)),
+                                         "=",1)
 
     # Constraints for ensuring the aircraft doesn't break laws of physics
     CONST_V_MAX = {}
@@ -217,6 +258,15 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map, v_
         # Stop plot once goal is reached.
         if b_goal[i].X == 1:
             break
+    
+    for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor):
+        for j in range(map_bound[0, 1], map_bound[1, 1], skip_factor):
+
+            if interpolation_points[i,j].X == 1:
+                print(i,j)
+
+    print(x[number_of_time_steps-1, 0].X, x[number_of_time_steps-1, 1].X)
+
 
     return np.array([x_plot, y_plot]), objective_value
 
@@ -332,29 +382,29 @@ if __name__ == '__main__':
     # DIMENSION = 2  # Number of dimensions.
     list_of_obstacles = []
     # Define obstacles.
-    list_of_obstacles.append(
-        np.array([[150, 200], [200, 410]]))  # Obstacle bounds (dx2 array with [lower_left, upper_right])
-    list_of_obstacles.append(np.array([[10, -10], [30, 250]]))
-    list_of_obstacles.append(np.array([[50, 50], [80, 400]]))
-    list_of_obstacles.append(np.array([[250, 250], [420, 260]]))
-    list_of_obstacles.append(np.array([[250, 250], [260, 335]]))
-    list_of_obstacles.append(np.array([[270, 210], [420, 220]]))
-    list_of_obstacles.append(np.array([[390, 210], [420, 260]]))
+    # list_of_obstacles.append(
+    #     np.array([[150, 200], [200, 410]]))  # Obstacle bounds (dx2 array with [lower_left, upper_right])
+    # list_of_obstacles.append(np.array([[10, -10], [30, 250]]))
+    # list_of_obstacles.append(np.array([[50, 50], [80, 400]]))
+    # list_of_obstacles.append(np.array([[250, 250], [420, 260]]))
+    # list_of_obstacles.append(np.array([[250, 250], [260, 335]]))
+    # list_of_obstacles.append(np.array([[270, 210], [420, 220]]))
+    # list_of_obstacles.append(np.array([[390, 210], [420, 260]]))
 
     # Initial conditions of the vehicle.
-    x_init = [300, 200]  # Initial position of the vehicle.
+    x_init = [1, 1]  # Initial position of the vehicle.
     v_init = [0, 0]  # Initial velocity of the vehicle.
 
     # Final conditions of the vehicle at the goal.
-    x_goal = (340, 270)  # Goal position
+    x_goal = (39, 34)  # Goal position
 
     # Limit on parameters
-    map_bound = np.array([[0, 0], [400, 350]])  # Map bounds (dx2 array with [lower_left, upper_right])
+    map_bound = np.array([[0, 0], [40, 35]])  # Map bounds (dx2 array with [lower_left, upper_right])
     v_max = 5  # Maximum velocity (scalar)
     u_max = 1  # Maximum input (scalar)
 
     r_plan = 150
-    number_of_steps = 40
+    number_of_steps = 4
     NORMALS = 16
     DIMENSION = 2
     skip_factor = 1  # this is a little broken, keep it at 1 for now
