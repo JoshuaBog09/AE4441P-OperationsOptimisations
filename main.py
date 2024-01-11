@@ -7,17 +7,15 @@ import numpy as np
 import networkx as nx
 
 
-def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map, v_max=10, u_max=0.1, r_plan=150,
+def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map_dict, v_max=10, u_max=0.1, r_plan=150,
                      number_of_steps=250,
-                     NORMALS=5, DIMENSION=2, map_bound=np.array([[0, 0], [600, 600]]), goal_constrains=False):
-    # Limits of the map, width is 600px, height is 400px
-
+                     NORMALS=5, DIMENSION=2, map_bound=np.array([[0, 0], [600, 600]])):
     # Create MILP model.
     model = gp.Model("Path Planning")
 
     # Model constants
     R = 1e6  # Big number.
-    # NORMALS = 5  # Number of normals used for vector magnitude calcualtion.
+    # NORMALS = 5  # Number of normals used for vector magnitude calculation.
     # DIMENSION = 2  # Number of dimensions.
 
     # Define obstacles. list_of_obstacles.append(np.array([[150, 200], [200, 410]]))    # Obstacle bounds (dx2 array
@@ -43,12 +41,19 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map, v_
     u = {}  # Decision variables for the inputs of the rover.
     b_goal = {}  # Boolean indicating whether a node reaches the goal.
     b_reach = {}  # Boolean indicating whether the goal is reachable.
+    b_active_dmap_node = {}  # Boolean indicating whether a node is active in the distance map.
     b_in = {}  # Boolean used for checking collision with obstacles.
     normal_direction_distance = {}  # Normal direction distance.
     goal_distance = {}  # Distance to goal for each node.
     x_goal_range = {}  # Range of the goal position.
     interpolation_points = {}
-    interpolation_points_in = {}
+
+    # ================ DEFINE DISTANCE MAP =========================
+    # Convert the distance map dictionary to a list of lists.
+    distance_map = []
+
+    for key, value in distance_map_dict.items():
+        distance_map.append([[int(re.findall(r'\b\d+\b', key)[0]), int(re.findall(r'\b\d+\b', key)[1])], value])
 
     # ================ DEFINE MODEL VARIABLES =========================
     # Binary deciding if goal is reachable
@@ -84,19 +89,18 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map, v_
         # Binary indicating first node that reaches goal.
         b_goal[i] = model.addVar(vtype=gp.GRB.BINARY, name=f"B_goal_{i}")
 
+    for i, node in enumerate(distance_map):
+        b_active_dmap_node[i] = model.addVar(vtype=gp.GRB.BINARY, name=f"B_active_dmap_node_{i}")
+
     # x_goal_range[0] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"B_goal_range", lb=-v_max, ub=v_max)
     # x_goal_range[1] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"B_goal_range", lb=-v_max, ub=v_max)
 
     # Interpolation squares
-    
+
     for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor):
         for j in range(map_bound[0, 1], map_bound[1, 1], skip_factor):
-            
-            interpolation_points[i,j] = model.addVar(vtype=gp.GRB.BINARY, name=f"Interpolation_point[x_low={i},y_low={j}]")
-
-            for k in range(4):
-
-                interpolation_points_in[i,j,k] = model.addVar(vtype=gp.GRB.BINARY, name=f"Ip_in[x_low={i},y_low={j},bound={k}]")
+            interpolation_points[i, j] = model.addVar(vtype=gp.GRB.BINARY,
+                                                      name=f"Interpolation_point[x_low={i},y_low={j}]")
 
     model.update()
 
@@ -114,7 +118,6 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map, v_
         CONST_V_INIT[d] = model.addLConstr(x[1, d], '=', x[0, d] + v_init[d] + u[0, d], name=f"CONST_V_INIT[dim={d}]")
 
     # Constraints for detecting when a node reaches the goal.
-
 
     CONST_X_GOAL = {}
 
@@ -153,30 +156,38 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map, v_
     CONST_IPSQUARES = {}
     CONST_IPSQUARE1 = {}
     CONST_IPSQUARE2 = {}
-    
-    trailing_x = x[number_of_time_steps-1, 0]
-    trailing_y = x[number_of_time_steps-1, 1]
+
+    trailing_x = x[number_of_time_steps - 1, 0]
+    trailing_y = x[number_of_time_steps - 1, 1]
 
     for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor):
         for j in range(map_bound[0, 1], map_bound[1, 1], skip_factor):
-            trailing_x = 10
-            trailing_y = 10
 
-            CONST_IPSQUARES[i,j,0] = model.addLConstr(trailing_x, ">=", (i - skip_factor/2) - R * interpolation_points_in[i,j,0],
-                                                      name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={0}]")
-            CONST_IPSQUARES[i,j,1] = model.addLConstr(trailing_x, "<", (i + skip_factor/2) + R * interpolation_points_in[i,j,1],
-                                                      name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={1}]")
-            CONST_IPSQUARES[i,j,2] = model.addLConstr(trailing_y, ">=", (j - skip_factor/2) - R * interpolation_points_in[i,j,2],
-                                                      name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={2}]")
-            CONST_IPSQUARES[i,j,3] = model.addLConstr(trailing_y, "<", (j + skip_factor/2) + R * interpolation_points_in[i,j,3],
-                                                      name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={3}]")
 
-            CONST_IPSQUARE1[i,j] = model.addLConstr(gp.quicksum(interpolation_points_in[i,j,k] for k in range(4)) + interpolation_points[i,j], ">=",
-                                                   1,
-                                                   name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j}]")
+            CONST_IPSQUARES[i, j, 0] = model.addLConstr(trailing_x, ">=",
+                                                        (i - skip_factor / 2) - R * (1 - interpolation_points[i, j]),
+                                                        name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={0}]")
+            CONST_IPSQUARES[i, j, 1] = model.addLConstr(trailing_x, "<",
+                                                        (i + skip_factor / 2) + R * (1 - interpolation_points[i, j]),
+                                                        name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={1}]")
+            CONST_IPSQUARES[i, j, 2] = model.addLConstr(trailing_y, ">=",
+                                                        (j - skip_factor / 2) - R * (1 - interpolation_points[i, j]),
+                                                        name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={2}]")
+            CONST_IPSQUARES[i, j, 3] = model.addLConstr(trailing_y, "<",
+                                                        (j + skip_factor / 2) + R * (1 - interpolation_points[i, j]),
+                                                        name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={3}]")
 
-    CONST_IPSQUARE2[0] = model.addLConstr(gp.quicksum(interpolation_points[i,j] for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor) for j in range(map_bound[0, 1], map_bound[1, 1], skip_factor)),
-                                         "=",1)
+    CONST_IPSQUARE2[0] = model.addLConstr(gp.quicksum(
+        interpolation_points[i, j] for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor) for j in
+        range(map_bound[0, 1], map_bound[1, 1], skip_factor)),
+                                          "=", 1)
+
+    # Constrains for the binary values that will tell us which node is active in the distance map.
+    CONST_DMAP = {}
+    for i in range(number_of_time_steps):
+        for j, node in enumerate(distance_map):
+            for d in range(DIMENSION):
+                continue
 
     # Constraints for ensuring the aircraft doesn't break laws of physics
     CONST_V_MAX = {}
@@ -230,12 +241,14 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map, v_
     object_var[0] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"object_var")
 
     # TODO: make sure this constraint is allowed
-    model.addConstr(object_var[0] == gp.min_(goal_distance[i] for i in range(number_of_time_steps)),
-                    name=f"object_constraint")
+    # model.addConstr(object_var[0] == gp.min_(goal_distance[i] for i in range(number_of_time_steps)),
+    #                 name=f"object_constraint")
     # object_constraint[0] = model.addConstr(object_var[0] == gp.min_(x_goal[0] - x[i, 0] + x_goal[1] - x[i,
-    # 1] for i in range(number_of_time_steps)), name=f"object_constraint") OBJECTIVE = model.setObjective(
-    # gp.quicksum(b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
-    OBJECTIVE = model.setObjective(object_var[0] - number_of_time_steps * b_reach[0] + gp.quicksum(b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
+    # 1] for i in range(number_of_time_steps)), name=f"object_constraint")
+    # OBJECTIVE = model.setObjective(object_var[0] - number_of_time_steps * b_reach[0] + gp.quicksum(
+    #     b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
+
+    OBJECTIVE = model.setObjective(gp.quicksum(interpolation_points[i,j]*distance_map_dict[f"X:{i}, Y:{j}"] for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor) for j in range(map_bound[0, 1], map_bound[1, 1], skip_factor)) - number_of_time_steps * b_reach[0] + gp.quicksum(b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
     model.update()
 
     model.write("models/model.lp")
@@ -258,15 +271,14 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map, v_
         # Stop plot once goal is reached.
         if b_goal[i].X == 1:
             break
-    
+
     for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor):
         for j in range(map_bound[0, 1], map_bound[1, 1], skip_factor):
 
-            if interpolation_points[i,j].X == 1:
-                print(i,j)
+            if interpolation_points[i, j].X == 1:
+                print(i, j)
 
-    print(x[number_of_time_steps-1, 0].X, x[number_of_time_steps-1, 1].X)
-
+    print(x[number_of_time_steps - 1, 0].X, x[number_of_time_steps - 1, 1].X)
 
     return np.array([x_plot, y_plot]), objective_value
 
@@ -274,7 +286,7 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map, v_
 # ============== PLOT RESULTS =================================
 
 
-def plot(path, x_pos,obstacle_list, map_limit=np.array([[0, 0], [600, 600]])):
+def plot(path, x_pos, obstacle_list, map_limit=np.array([[0, 0], [600, 600]])):
     # Define figure and axis.
     fig, ax = plt.subplots()
 
@@ -373,6 +385,15 @@ def cost_cal(graph, goal_pos):
     return dict(cost)
 
 
+# ============= Fix mistakes from the past =================
+
+def fix_mistakes_from_the_past(cost, map_bounds):
+    for i in range(map_bounds[0, 0], map_bounds[1, 0]):
+        for j in range(map_bounds[0, 1], map_bounds[1, 1]):
+            if f"X:{i}, Y:{j}" not in cost:
+                cost[f"X:{i}, Y:{j}"] = 1e8
+    return cost
+
 # ================== MAIN =======================================
 
 if __name__ == '__main__':
@@ -382,39 +403,40 @@ if __name__ == '__main__':
     # DIMENSION = 2  # Number of dimensions.
     list_of_obstacles = []
     # Define obstacles.
-    # list_of_obstacles.append(
-    #     np.array([[150, 200], [200, 410]]))  # Obstacle bounds (dx2 array with [lower_left, upper_right])
-    # list_of_obstacles.append(np.array([[10, -10], [30, 250]]))
-    # list_of_obstacles.append(np.array([[50, 50], [80, 400]]))
-    # list_of_obstacles.append(np.array([[250, 250], [420, 260]]))
-    # list_of_obstacles.append(np.array([[250, 250], [260, 335]]))
-    # list_of_obstacles.append(np.array([[270, 210], [420, 220]]))
-    # list_of_obstacles.append(np.array([[390, 210], [420, 260]]))
+    list_of_obstacles.append(
+        np.array([[150, 200], [200, 410]]))  # Obstacle bounds (dx2 array with [lower_left, upper_right])
+    list_of_obstacles.append(np.array([[10, -10], [30, 250]]))
+    list_of_obstacles.append(np.array([[50, 50], [80, 400]]))
+    list_of_obstacles.append(np.array([[250, 250], [420, 260]]))
+    list_of_obstacles.append(np.array([[250, 250], [260, 335]]))
+    list_of_obstacles.append(np.array([[270, 210], [420, 220]]))
+    list_of_obstacles.append(np.array([[390, 210], [420, 260]]))
 
     # Initial conditions of the vehicle.
-    x_init = [1, 1]  # Initial position of the vehicle.
+    x_init = [325, 235]  # Initial position of the vehicle.
     v_init = [0, 0]  # Initial velocity of the vehicle.
 
     # Final conditions of the vehicle at the goal.
-    x_goal = (39, 34)  # Goal position
+    x_goal = (390, 340)  # Goal position
 
     # Limit on parameters
-    map_bound = np.array([[0, 0], [40, 35]])  # Map bounds (dx2 array with [lower_left, upper_right])
+    map_bound = np.array([[0, 0], [400, 350]])  # Map bounds (dx2 array with [lower_left, upper_right])
     v_max = 5  # Maximum velocity (scalar)
     u_max = 1  # Maximum input (scalar)
 
     r_plan = 150
-    number_of_steps = 4
+    number_of_steps = 25
     NORMALS = 16
     DIMENSION = 2
     skip_factor = 1  # this is a little broken, keep it at 1 for now
 
     point_graph = generate_map(list_of_obstacles, map_bound, skip_factor)
-    cost_array = cost_cal(point_graph, x_goal)
+    cost_dict = cost_cal(point_graph, x_goal)
     # plt.show()
-    plot_distance_to_goal_heat_map(list_of_obstacles, cost_array, skip_factor, map_bound)
-    path, objective_result = receding_horizon(x_init, v_init, list_of_obstacles, x_goal, cost_array, v_max, u_max,
+    plot_distance_to_goal_heat_map(list_of_obstacles, cost_dict, skip_factor, map_bound)
+    cost_dict = fix_mistakes_from_the_past(cost_dict, map_bound)
+    path, objective_result = receding_horizon(x_init, v_init, list_of_obstacles, x_goal, cost_dict, v_max, u_max,
                                               r_plan,
-                                              number_of_steps, NORMALS, DIMENSION, map_bound, False)
+                                              number_of_steps, NORMALS, DIMENSION, map_bound)
 
     plot(path, x_goal, list_of_obstacles, map_bound)
