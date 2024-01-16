@@ -5,6 +5,7 @@ import math
 import re
 import numpy as np
 import networkx as nx
+import pickle
 
 
 def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map_dict, v_max=10, u_max=0.1, r_plan=150,
@@ -162,8 +163,6 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map_dic
 
     for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor):
         for j in range(map_bound[0, 1], map_bound[1, 1], skip_factor):
-
-
             CONST_IPSQUARES[i, j, 0] = model.addLConstr(trailing_x, ">=",
                                                         (i - skip_factor / 2) - R * (1 - interpolation_points[i, j]),
                                                         name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={0}]")
@@ -180,7 +179,7 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map_dic
     CONST_IPSQUARE2[0] = model.addLConstr(gp.quicksum(
         interpolation_points[i, j] for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor) for j in
         range(map_bound[0, 1], map_bound[1, 1], skip_factor)),
-                                          "=", 1)
+        "=", 1)
 
     # Constrains for the binary values that will tell us which node is active in the distance map.
     CONST_DMAP = {}
@@ -248,7 +247,11 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map_dic
     # OBJECTIVE = model.setObjective(object_var[0] - number_of_time_steps * b_reach[0] + gp.quicksum(
     #     b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
 
-    OBJECTIVE = model.setObjective(gp.quicksum(interpolation_points[i,j]*distance_map_dict[f"X:{i}, Y:{j}"] for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor) for j in range(map_bound[0, 1], map_bound[1, 1], skip_factor)) - number_of_time_steps * b_reach[0] + gp.quicksum(b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
+    OBJECTIVE = model.setObjective(gp.quicksum(interpolation_points[i, j] * distance_map_dict[f"X:{i}, Y:{j}"] for i in
+                                               range(map_bound[0, 0], map_bound[1, 0], skip_factor) for j in
+                                               range(map_bound[0, 1], map_bound[1, 1],
+                                                     skip_factor)) - number_of_time_steps * b_reach[0] + gp.quicksum(
+        b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
     model.update()
 
     model.write("models/model.lp")
@@ -394,6 +397,60 @@ def fix_mistakes_from_the_past(cost, map_bounds):
                 cost[f"X:{i}, Y:{j}"] = 1e8
     return cost
 
+
+# ============ Handle saved level data ====================
+
+def get_level_data(obstacle_list, goal_pos, map_limit, skip_factor, plot_heatmap=False):
+    use_loaded_data = True  # a variable that will determine if we recalculate stuff, or we can use loaded data
+
+    try:
+        with open('pickle_data/obstacle_list.pickle', 'rb') as handle:
+            loaded_obstacle_list = pickle.load(handle)
+        try:
+            if not np.all(loaded_obstacle_list == np.array(obstacle_list)):
+                use_loaded_data = False
+        except ValueError:
+            use_loaded_data = False
+
+    except FileNotFoundError:
+        use_loaded_data = False
+
+    try:
+        with open('pickle_data/cost_dict.pickle', 'rb') as handle:
+            loaded_cost_dict = pickle.load(handle)
+    except FileNotFoundError:
+        use_loaded_data = False
+
+    if use_loaded_data:
+        print("Using level data loaded from disk.")
+        if plot_heatmap:
+            plot_distance_to_goal_heat_map(obstacle_list, loaded_cost_dict, skip_factor, map_limit)
+
+        return loaded_cost_dict
+    else:
+        print("Recalculating level data.")
+        graph = generate_map(obstacle_list, map_limit, skip_factor)
+        calc_cost_dict = cost_cal(graph, goal_pos)
+
+        if plot_heatmap:
+            plot_distance_to_goal_heat_map(obstacle_list, calc_cost_dict, skip_factor, map_limit)
+
+        calc_cost_dict = fix_mistakes_from_the_past(calc_cost_dict, map_limit)
+
+        try:
+            with open('pickle_data/obstacle_list.pickle', 'wb') as handle:
+                pickle.dump(obstacle_list, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        except IOError:
+            print('Failed to save obstacle data.')
+        try:
+            with open('pickle_data/cost_dict.pickle', 'wb') as handle:
+                pickle.dump(calc_cost_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        except IOError:
+            print('Failed to save cost dictionary.')
+
+        return calc_cost_dict
+
+
 # ================== MAIN =======================================
 
 if __name__ == '__main__':
@@ -430,11 +487,13 @@ if __name__ == '__main__':
     DIMENSION = 2
     skip_factor = 1  # this is a little broken, keep it at 1 for now
 
-    point_graph = generate_map(list_of_obstacles, map_bound, skip_factor)
-    cost_dict = cost_cal(point_graph, x_goal)
-    # plt.show()
-    plot_distance_to_goal_heat_map(list_of_obstacles, cost_dict, skip_factor, map_bound)
-    cost_dict = fix_mistakes_from_the_past(cost_dict, map_bound)
+    cost_dict = get_level_data(list_of_obstacles, x_goal, map_bound, skip_factor, plot_heatmap=False)
+
+    # point_graph = generate_map(list_of_obstacles, map_bound, skip_factor)
+    # cost_dict = cost_cal(point_graph, x_goal)
+    # # plt.show()
+    # plot_distance_to_goal_heat_map(list_of_obstacles, cost_dict, skip_factor, map_bound)
+    # cost_dict = fix_mistakes_from_the_past(cost_dict, map_bound)
     path, objective_result = receding_horizon(x_init, v_init, list_of_obstacles, x_goal, cost_dict, v_max, u_max,
                                               r_plan,
                                               number_of_steps, NORMALS, DIMENSION, map_bound)
