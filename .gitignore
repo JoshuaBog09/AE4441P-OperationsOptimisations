@@ -8,7 +8,6 @@ __pycache__/
 
 # random folder
 test_stuff/
-models/
 experiments/
 docs/
 
