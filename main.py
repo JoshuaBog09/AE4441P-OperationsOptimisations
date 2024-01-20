@@ -10,7 +10,7 @@ import pickle
 
 def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map_dict, v_max=10, u_max=0.1, r_plan=150,
                      number_of_steps=250,
-                     NORMALS=5, DIMENSION=2, map_bound=np.array([[0, 0], [600, 600]])):
+                     NORMALS=5, DIMENSION=2, map_bound=np.array([[0, 0], [600, 600]]), only_model_generation=False):
     # Create MILP model.
     model = gp.Model("Path Planning")
 
@@ -44,7 +44,7 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map_dic
     b_reach = {}  # Boolean indicating whether the goal is reachable.
     b_active_dmap_node = {}  # Boolean indicating whether a node is active in the distance map.
     b_in = {}  # Boolean used for checking collision with obstacles.
-    normal_direction_distance = {}  # Normal direction distance.
+    # normal_direction_distance = {}  # Normal direction distance.
     goal_distance = {}  # Distance to goal for each node.
     x_goal_range = {}  # Range of the goal position.
     interpolation_points = {}
@@ -63,6 +63,9 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map_dic
     # Define the variables for each time step.
     for i in range(number_of_time_steps):
 
+        goal_distance[i] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"goal_distance[time={i}]", lb=0,
+                                        ub=map_bound[1, 0] + map_bound[1, 1])
+
         for d in range(DIMENSION):
             # Position variables for the vehicle position, limited by the map bounds.
             x[i, d] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"X[time={i},dim={d}]", lb=map_bound[0, d],
@@ -72,14 +75,12 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map_dic
             u[i, d] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"U[time={i},dim={d}]", lb=-u_max - R, ub=u_max + R)
 
             # Distance to goal for each node
-            goal_distance[i] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"goal_distance[time={i}]", lb=0,
-                                            ub=map_bound[1, 0] + map_bound[1, 1])
 
-            for n in range(NORMALS):
-                # Normal direction distance
-                normal_direction_distance[i, n] = model.addVar(vtype=gp.GRB.CONTINUOUS,
-                                                               name=f"normal_direction_distance[time={i},normal={n}]",
-                                                               lb=-10000, ub=10000)
+            # for n in range(NORMALS):
+            # Normal direction distance
+            # normal_direction_distance[i, n] = model.addVar(vtype=gp.GRB.CONTINUOUS,
+            #                                                name=f"normal_direction_distance[time={i},normal={n}]",
+            #                                                lb=-10000, ub=10000)
 
             # Binary for obstacle detection.
             for k in range(len(list_of_obstacles)):
@@ -151,9 +152,6 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map_dic
                 gp.quicksum(b_in[i, d, k, 0] + b_in[i, d, k, 1] for d in range(DIMENSION)), '<=', 3,
                 name=f"CONST_OBSTACLE_DETECTION[time={i},obs={k}]")
 
-    # TODO: Figure out how "interpolate" the distance map. One idea is to create new collision rhomboids around very
-    #  point and when the an X is in that collision box, then it has that collision box's distance value
-
     CONST_IPSQUARES = {}
     CONST_IPSQUARE1 = {}
     CONST_IPSQUARE2 = {}
@@ -182,11 +180,11 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map_dic
         "=", 1)
 
     # Constrains for the binary values that will tell us which node is active in the distance map.
-    CONST_DMAP = {}
-    for i in range(number_of_time_steps):
-        for j, node in enumerate(distance_map):
-            for d in range(DIMENSION):
-                continue
+    # CONST_DMAP = {}
+    # for i in range(number_of_time_steps):
+    #     for j, node in enumerate(distance_map):
+    #         for d in range(DIMENSION):
+    #             continue
 
     # Constraints for ensuring the aircraft doesn't break laws of physics
     CONST_V_MAX = {}
@@ -215,37 +213,28 @@ def receding_horizon(x_init, v_init, list_of_obstacles, x_goal, distance_map_dic
             # u_max, name=f"ONST_U_MAX[time={i},normals={n}]")
 
     # Relation input, velocity and position next point.
-    CONST_POS = {}
-    CONST_NORMAL_DISTANCE = {}
+    # CONST_POS = {}
+    # CONST_NORMAL_DISTANCE = {}
 
-    for i in range(number_of_time_steps):
-        for n in range(NORMALS):
-            CONST_NORMAL_DISTANCE[i, n] = model.addLConstr((x_goal[0] - x[i, 0]) * np.cos(2 * np.pi / NORMALS * n) + (
-                    x_goal[1] - x[i, 1]) * np.sin(2 * np.pi / NORMALS * n), '=', normal_direction_distance[i, n],
-                                                           name=f"CONST_NORMAL_DISTANCE[time={i},normal={n}]")
-        # TODO: maybe remove forbidden magic ("gp.max_")
-        CONST_GOAL_DISTANCE[i] = model.addConstr(
-            goal_distance[i] == gp.max_(normal_direction_distance[i, n] for n in range(NORMALS)),
-            name=f"CONST_GOAL_DISTANCE[time={i}]")
+    # for i in range(number_of_time_steps):
+    #     for n in range(NORMALS):
+    #         CONST_NORMAL_DISTANCE[i, n] = model.addLConstr((x_goal[0] - x[i, 0]) * np.cos(2 * np.pi / NORMALS * n) + (
+    #                 x_goal[1] - x[i, 1]) * np.sin(2 * np.pi / NORMALS * n), '=', normal_direction_distance[i, n],
+    #                                                        name=f"CONST_NORMAL_DISTANCE[time={i},normal={n}]")
 
     # Correlate input and the velocity
-    for i in range(number_of_time_steps - 2):
-        for d in range(DIMENSION):
-            CONST_POS[i, d] = model.addLConstr(x[i + 2, d], '=', 2 * x[i + 1, d] - x[i, d] + u[i + 1, d],
-                                               name=f"CONST_POS[time={i},dim={d}]")
+    # for i in range(number_of_time_steps - 2):
+    #     for d in range(DIMENSION):
+    #         CONST_POS[i, d] = model.addLConstr(x[i + 2, d], '=', 2 * x[i + 1, d] - x[i, d] + u[i + 1, d],
+    #                                            name=f"CONST_POS[time={i},dim={d}]")
 
-    # **** for gurobi
+    if only_model_generation:
+        model.update()
+        return model
+
     object_var = {}
     object_constraint = {}
     object_var[0] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"object_var")
-
-    # TODO: make sure this constraint is allowed
-    # model.addConstr(object_var[0] == gp.min_(goal_distance[i] for i in range(number_of_time_steps)),
-    #                 name=f"object_constraint")
-    # object_constraint[0] = model.addConstr(object_var[0] == gp.min_(x_goal[0] - x[i, 0] + x_goal[1] - x[i,
-    # 1] for i in range(number_of_time_steps)), name=f"object_constraint")
-    # OBJECTIVE = model.setObjective(object_var[0] - number_of_time_steps * b_reach[0] + gp.quicksum(
-    #     b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
 
     OBJECTIVE = model.setObjective(gp.quicksum(interpolation_points[i, j] * distance_map_dict[f"X:{i}, Y:{j}"] for i in
                                                range(map_bound[0, 0], map_bound[1, 0], skip_factor) for j in
@@ -400,14 +389,14 @@ def fix_mistakes_from_the_past(cost, map_bounds):
 
 # ============ Handle saved level data ====================
 
-def get_level_data(obstacle_list, goal_pos, map_limit, skip_factor, plot_heatmap=False):
+def get_level_data(setup_data, plot_heatmap=False):
     use_loaded_data = True  # a variable that will determine if we recalculate stuff, or we can use loaded data
 
     try:
-        with open('pickle_data/obstacle_list.pickle', 'rb') as handle:
-            loaded_obstacle_list = pickle.load(handle)
+        with open('pickle_data/setup_data.pickle', 'rb') as handle:
+            loaded_setup_data = pickle.load(handle)
         try:
-            if not np.all(loaded_obstacle_list == np.array(obstacle_list)):
+            if not np.all(loaded_setup_data.obstacle_list == np.array(setup_data.obstacle_list)):
                 use_loaded_data = False
         except ValueError:
             use_loaded_data = False
@@ -424,22 +413,24 @@ def get_level_data(obstacle_list, goal_pos, map_limit, skip_factor, plot_heatmap
     if use_loaded_data:
         print("Using level data loaded from disk.")
         if plot_heatmap:
-            plot_distance_to_goal_heat_map(obstacle_list, loaded_cost_dict, skip_factor, map_limit)
+            plot_distance_to_goal_heat_map(setup_data.obstacle_list, loaded_cost_dict, setup_data.skip_factor,
+                                           setup_data.map_limit)
 
         return loaded_cost_dict
     else:
         print("Recalculating level data.")
-        graph = generate_map(obstacle_list, map_limit, skip_factor)
-        calc_cost_dict = cost_cal(graph, goal_pos)
+        graph = generate_map(setup_data.obstacle_list, setup_data.map_limit, setup_data.skip_factor)
+        calc_cost_dict = cost_cal(graph, setup_data.goal_pos)
 
         if plot_heatmap:
-            plot_distance_to_goal_heat_map(obstacle_list, calc_cost_dict, skip_factor, map_limit)
+            plot_distance_to_goal_heat_map(setup_data.obstacle_list, calc_cost_dict, setup_data.skip_factor,
+                                           setup_data.map_limit)
 
-        calc_cost_dict = fix_mistakes_from_the_past(calc_cost_dict, map_limit)
+        calc_cost_dict = fix_mistakes_from_the_past(calc_cost_dict, setup_data.map_limit)
 
         try:
-            with open('pickle_data/obstacle_list.pickle', 'wb') as handle:
-                pickle.dump(obstacle_list, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            with open('pickle_data/setup_data.pickle', 'wb') as handle:
+                pickle.dump(setup_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
         except IOError:
             print('Failed to save obstacle data.')
         try:
@@ -451,13 +442,72 @@ def get_level_data(obstacle_list, goal_pos, map_limit, skip_factor, plot_heatmap
         return calc_cost_dict
 
 
+# ================= Handle loading saved model data ====================
+
+def provide_model(setup_data):
+    use_disk_data = True  # a variable that will determine if we recalculate stuff, or we can use loaded data
+
+    try:
+        with open('pickle_data/setup_data.pickle', 'rb') as handle:
+            loaded_setup_data = pickle.load(handle)
+    except FileNotFoundError:
+        print("No setup data found, recalculating model.")
+        use_disk_data = False
+
+    if use_disk_data:
+        if loaded_setup_data == setup_data:
+            print("Using model loaded from disk.")
+            try:
+                model = gp.read("models/model.lp")
+                return model
+            except IOError:
+                print('Failed to load model.')
+        else:
+            print("Setup data has changed, recalculating model.")
+
+    model = receding_horizon(x_init, v_init, list_of_obstacles, x_goal, get_level_data(setup_data), v_max, u_max,
+                             r_plan,
+                             number_of_steps, NORMALS, DIMENSION, map_bound, only_model_generation=True)
+
+    return model
+
+
+class SetUpData:
+    def __init__(self, obstacle_list, goal_pos, map_limit, skip_factor, x_init, v_init, v_max, u_max, normal, dimension,
+                 number_of_steps):
+        self.obstacle_list = obstacle_list
+        self.goal_pos = goal_pos
+        self.map_limit = map_limit
+        self.skip_factor = skip_factor
+        self.x_init = x_init
+        self.v_init = v_init
+        self.v_max = v_max
+        self.u_max = u_max
+        self.normal = normal
+        self.dimension = dimension
+        self.number_of_steps = number_of_steps
+
+    def __eq__(self, other):
+        if not isinstance(other, SetUpData):
+            return NotImplemented
+
+            # Compare each attribute
+        return (all(np.array_equal(a, b) for a, b in zip(self.obstacle_list, other.obstacle_list)) and
+                self.goal_pos == other.goal_pos and
+                np.array_equal(self.map_limit, other.map_limit) and
+                self.skip_factor == other.skip_factor and
+                self.x_init == other.x_init and
+                self.v_init == other.v_init and
+                self.v_max == other.v_max and
+                self.u_max == other.u_max and
+                self.normal == other.normal and
+                self.dimension == other.dimension and
+                self.number_of_steps == other.number_of_steps)
+
+
 # ================== MAIN =======================================
 
 if __name__ == '__main__':
-    # Model constants
-    R = 1e6  # Big number.
-    # NORMALS = 5  # Number of normals used for vector magnitude calculation.
-    # DIMENSION = 2  # Number of dimensions.
     list_of_obstacles = []
     # Define obstacles.
     list_of_obstacles.append(
@@ -487,15 +537,18 @@ if __name__ == '__main__':
     DIMENSION = 2
     skip_factor = 1  # this is a little broken, keep it at 1 for now
 
-    cost_dict = get_level_data(list_of_obstacles, x_goal, map_bound, skip_factor, plot_heatmap=False)
+    setup_data = SetUpData(list_of_obstacles, x_goal, map_bound, skip_factor, x_init, v_init, v_max, u_max, NORMALS,
+                           DIMENSION, number_of_steps)
+
+    model = provide_model(setup_data)
 
     # point_graph = generate_map(list_of_obstacles, map_bound, skip_factor)
     # cost_dict = cost_cal(point_graph, x_goal)
     # # plt.show()
     # plot_distance_to_goal_heat_map(list_of_obstacles, cost_dict, skip_factor, map_bound)
     # cost_dict = fix_mistakes_from_the_past(cost_dict, map_bound)
-    path, objective_result = receding_horizon(x_init, v_init, list_of_obstacles, x_goal, cost_dict, v_max, u_max,
-                                              r_plan,
-                                              number_of_steps, NORMALS, DIMENSION, map_bound)
-
-    plot(path, x_goal, list_of_obstacles, map_bound)
+    # path, objective_result = receding_horizon(x_init, v_init, list_of_obstacles, x_goal, cost_dict, v_max, u_max,
+    #                                           r_plan,
+    #                                           number_of_steps, NORMALS, DIMENSION, map_bound)
+    #
+    # plot(path, x_goal, list_of_obstacles, map_bound)
