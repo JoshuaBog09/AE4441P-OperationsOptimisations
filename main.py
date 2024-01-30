@@ -469,6 +469,8 @@ def provide_model(setup_data):
                              r_plan,
                              number_of_steps, NORMALS, DIMENSION, map_bound, only_model_generation=True)
 
+    model.write("models/model.lp")
+
     return model
 
 
