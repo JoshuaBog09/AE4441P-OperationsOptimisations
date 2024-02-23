@@ -460,11 +460,11 @@ if __name__ == "__main__":
     CONFIG = Config(normals=16,
                     dimension=2,
                     plan_horizon=10,
-                    exec_horizon=5,
+                    exec_horizon=3,
                     big_m=1e6)
 
     vehicle = Vehicle(v_max=5.0,
-                      u_max=1.0,
+                      u_max=0.5,
                       x_init=np.array([1, 1]),
                       v_init=np.array([0, 0]))
 
