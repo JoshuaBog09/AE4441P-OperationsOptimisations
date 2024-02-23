@@ -380,6 +380,24 @@ def update(model, vehicle, config):
 
     return model
 
+def get_path(model, config):
+    # Define figure and axis.
+    x_path = []
+    y_path = []
+    for i in range(config.plan_horizon):
+        x_path.append(model.getVarByName(f"X[time={i},dim={0}]").X)
+        y_path.append(model.getVarByName(f"X[time={i},dim={1}]").X)
+        # Stop plot once goal is reached.
+        if model.getVarByName(f"B_goal_{i}").X == 1:
+            break
+
+    plan_path = np.array([x_path, y_path]).T
+    exec_path = plan_path[:config.exec_horizon-1]
+
+    return plan_path, exec_path
+
+
+
 
 if __name__ == "__main__":
     list_of_obstacles = []
@@ -398,7 +416,7 @@ if __name__ == "__main__":
 
     CONFIG = Config(normals = 16,
                     dimension = 2,
-                    plan_horizon = 25,
+                    plan_horizon = 15,
                     exec_horizon = 10,
                     big_m = 1e6)
 
@@ -407,10 +425,19 @@ if __name__ == "__main__":
                       x_init = np.array([325, 50]),
                       v_init = np.array([0, 0]))
 
+
+    plan_path = []
+    exec_path = []
+
     model = make_model(MAP, CONFIG, vehicle)
     #MAP.show_scene()
 
     while True:
         model.optimize()
+        plan, exec = get_path(model, CONFIG)
+        print(plan)
+        plan_path.append(plan)
+        exec_path.append(exec)
+
         plot(model, MAP, CONFIG)
         model = update(model, vehicle, CONFIG)
