@@ -173,14 +173,6 @@ def make_model(scene, config, vehicle):
             # Input variables, limited by maximum input.
             u[i, d] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"U[time={i},dim={d}]", lb=-u_max - R, ub=u_max + R)
 
-            # Distance to goal for each node
-
-            # for n in range(NORMALS):
-            # Normal direction distance
-            # normal_direction_distance[i, n] = model.addVar(vtype=gp.GRB.CONTINUOUS,
-            #                                                name=f"normal_direction_distance[time={i},normal={n}]",
-            #                                                lb=-10000, ub=10000)
-
             # Binary for obstacle detection.
             for k in range(len(list_of_obstacles)):
                 # Binaries for detecting obstacle collision.
@@ -193,11 +185,7 @@ def make_model(scene, config, vehicle):
     for i, node in enumerate(distance_map):
         b_active_dmap_node[i] = model.addVar(vtype=gp.GRB.BINARY, name=f"B_active_dmap_node_{i}")
 
-    # x_goal_range[0] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"B_goal_range", lb=-v_max, ub=v_max)
-    # x_goal_range[1] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"B_goal_range", lb=-v_max, ub=v_max)
-
     # Interpolation squares
-
     for i in range(map_bound[0, 0], map_bound[1, 0]):
         for j in range(map_bound[0, 1], map_bound[1, 1]):
             interpolation_points[i, j] = model.addVar(vtype=gp.GRB.BINARY,
@@ -219,7 +207,6 @@ def make_model(scene, config, vehicle):
         CONST_V_INIT[d] = model.addLConstr(x[1, d], '=', x[0, d] + v_init[d] + u[0, d], name=f"CONST_V_INIT[dim={d}]")
 
     # Constraints for detecting when a node reaches the goal.
-
     CONST_X_GOAL = {}
 
     for i in range(STEPS - 1):
@@ -261,16 +248,16 @@ def make_model(scene, config, vehicle):
     for i in range(map_bound[0, 0], map_bound[1, 0]):
         for j in range(map_bound[0, 1], map_bound[1, 1]):
             CONST_IPSQUARES[i, j, 0] = model.addLConstr(trailing_x, ">=",
-                                                        (i / 2) - R * (1 - interpolation_points[i, j]),
+                                                        (i - 0.5) - R * (1 - interpolation_points[i, j]),
                                                         name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={0}]")
             CONST_IPSQUARES[i, j, 1] = model.addLConstr(trailing_x, "<",
-                                                        (i / 2) + R * (1 - interpolation_points[i, j]),
+                                                        (i + 0.5) + R * (1 - interpolation_points[i, j]),
                                                         name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={1}]")
             CONST_IPSQUARES[i, j, 2] = model.addLConstr(trailing_y, ">=",
-                                                        (j / 2) - R * (1 - interpolation_points[i, j]),
+                                                        (j - 0.5) - R * (1 - interpolation_points[i, j]),
                                                         name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={2}]")
             CONST_IPSQUARES[i, j, 3] = model.addLConstr(trailing_y, "<",
-                                                        (j / 2) + R * (1 - interpolation_points[i, j]),
+                                                        (j + 0.5) + R * (1 - interpolation_points[i, j]),
                                                         name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={3}]")
 
     CONST_IPSQUARE2[0] = model.addLConstr(gp.quicksum(
@@ -358,10 +345,9 @@ def plot(path, scene):
 
 
 def update(model, vehicle, config):
-    # Construct list with vehicle location to be plotted
+
     x_path = []
     y_path = []
-
     for i in range(config.plan_horizon):
         x_path.append(model.getVarByName(f"X[time={i},dim={0}]").X)
         y_path.append(model.getVarByName(f"X[time={i},dim={1}]").X)
@@ -377,10 +363,10 @@ def update(model, vehicle, config):
     vehicle.x_init = x_end
     vehicle.v_init = v_end
 
-    model.setAttr("RHS", model.getConstrs("CONST_X_INIT[0]"), vehicle.x_init[0])
-    model.setAttr("RHS", model.getConstrs("CONST_X_INIT[1]"), vehicle.x_init[1])
-    model.setAttr("RHS", model.getConstrs("CONST_V_INIT[0]"), vehicle.v_init[0])
-    model.setAttr("RHS", model.getConstrs("CONST_V_INIT[1]"), vehicle.v_init[1])
+    model.getConstrByName("CONST_X_INIT[0]").rhs = vehicle.x_init[0]
+    model.getConstrByName("CONST_X_INIT[1]").rhs = vehicle.x_init[1]
+    model.getConstrByName("CONST_V_INIT[0]").rhs = vehicle.v_init[0]
+    model.getConstrByName("CONST_V_INIT[1]").rhs = vehicle.v_init[1]
 
     model.update()
 
@@ -414,7 +400,7 @@ if __name__ == "__main__":
                       v_init = np.array([0, 0]))
 
     model = make_model(MAP, CONFIG, vehicle)
-    MAP.show_scene()
+    #MAP.show_scene()
 
     for i in range(3):
         model.optimize()
