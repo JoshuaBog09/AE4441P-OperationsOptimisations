@@ -120,25 +120,21 @@ def make_model(scene, config, vehicle):
     R =  config.big_m # Big number.
     NORMALS = config.normals  # Number of normals used for vector magnitude calculation.
     DIMENSION = config.dimension  # Number of dimensions.
+    number_of_time_steps = config.steps
 
-    # Define obstacles
+    # Define scene properties
     list_of_obstacles = scene.obstacles
+    map_bound = scene.map_bounds  # Map bounds (dx2 array with [lower_left, upper_right])
+    gradient_map = scene.gradient_map
+    x_goal = scene.goal  # Goal position
+
 
 
     # Initial conditions of the vehicle.
     x_init = vehicle.x_init  # Initial position of the vehicle.
     v_init = vehicle.v_init  # Initial velocity of the vehicle.
 
-    # Final conditions of the vehicle at the goal.
-    x_goal = scene.goal  # Goal position
-
-    # Equivalent number of time steps, L.
-    number_of_time_steps = config.steps
-
-    distance_map_dict = scene.gradient_map
-
     # Limit on parameters
-    map_bound = scene.map_bounds  # Map bounds (dx2 array with [lower_left, upper_right])
     v_max = vehicle.v_max  # Maximum velocity (scalar)
     u_max = vehicle.u_max  # Maximum input (scalar)
 
@@ -149,7 +145,6 @@ def make_model(scene, config, vehicle):
     b_reach = {}  # Boolean indicating whether the goal is reachable.
     b_active_dmap_node = {}  # Boolean indicating whether a node is active in the distance map.
     b_in = {}  # Boolean used for checking collision with obstacles.
-    # normal_direction_distance = {}  # Normal direction distance.
     goal_distance = {}  # Distance to goal for each node.
     x_goal_range = {}  # Range of the goal position.
     interpolation_points = {}
@@ -158,7 +153,7 @@ def make_model(scene, config, vehicle):
     # Convert the distance map dictionary to a list of lists.
     distance_map = []
 
-    for key, value in distance_map_dict.items():
+    for key, value in gradient_map.items():
         distance_map.append([[int(re.findall(r'\b\d+\b', key)[0]), int(re.findall(r'\b\d+\b', key)[1])], value])
 
     # ================ DEFINE MODEL VARIABLES =========================
@@ -305,39 +300,24 @@ def make_model(scene, config, vehicle):
                 (x[i + 1, 0] - x[i, 0]) * np.cos(2 * np.pi / NORMALS * n) + (x[i + 1, 1] - x[i, 1]) * np.sin(
                     2 * np.pi / NORMALS * n), '<=', v_max, name=f"COST_V_MAX[time={i},normal={n}]")
 
-            # CONST_V_MAX[i, n] = model.addLConstr( (x[i + 1, 0] - x[i, 0]) * 1 + (x[i + 1, 1] - x[i, 1]) * 0, '<=',
-            # v_max, name=f"COST_V_MAX[time={i},normal={n}]")
-
             # Input constrain
             CONST_U_MAX[i, n] = model.addLConstr(
                 (u[i, 0]) * np.cos(2 * np.pi / NORMALS * n) + (u[i, 1]) * np.sin(
                     2 * np.pi / NORMALS * n), '<=', u_max,
                 name=f"CONST_U_MAX[time={i},normals={n}]")
 
-            # CONST_U_MAX[i, n] = model.addLConstr( (u[i + 1, 0] - u[i, 0]) * 1 + (u[i + 1, 1] - u[i, 1]) * 0, '<=',
-            # u_max, name=f"ONST_U_MAX[time={i},normals={n}]")
-
-    # Relation input, velocity and position next point.
-    # CONST_POS = {}
-    # CONST_NORMAL_DISTANCE = {}
-
-    # for i in range(number_of_time_steps):
-    #     for n in range(NORMALS):
-    #         CONST_NORMAL_DISTANCE[i, n] = model.addLConstr((x_goal[0] - x[i, 0]) * np.cos(2 * np.pi / NORMALS * n) + (
-    #                 x_goal[1] - x[i, 1]) * np.sin(2 * np.pi / NORMALS * n), '=', normal_direction_distance[i, n],
-    #                                                        name=f"CONST_NORMAL_DISTANCE[time={i},normal={n}]")
-
     # Correlate input and the velocity
-    # for i in range(number_of_time_steps - 2):
-    #     for d in range(DIMENSION):
-    #         CONST_POS[i, d] = model.addLConstr(x[i + 2, d], '=', 2 * x[i + 1, d] - x[i, d] + u[i + 1, d],
-    #                                            name=f"CONST_POS[time={i},dim={d}]")
+    CONST_POS = {}
+    for i in range(number_of_time_steps - 2):
+        for d in range(DIMENSION):
+            CONST_POS[i, d] = model.addLConstr(x[i + 2, d], '=', 2 * x[i + 1, d] - x[i, d] + u[i + 1, d],
+                                               name=f"CONST_POS[time={i},dim={d}]")
 
     object_var = {}
     object_constraint = {}
     object_var[0] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"object_var")
 
-    OBJECTIVE = model.setObjective(gp.quicksum(interpolation_points[i, j] * distance_map_dict[f"X:{i}, Y:{j}"] for i in
+    OBJECTIVE = model.setObjective(gp.quicksum(interpolation_points[i, j] * gradient_map[f"X:{i}, Y:{j}"] for i in
                                                range(map_bound[0, 0], map_bound[1, 0], skip_factor) for j in
                                                range(map_bound[0, 1], map_bound[1, 1],
                                                      skip_factor)) - number_of_time_steps * b_reach[0] + gp.quicksum(
@@ -346,13 +326,46 @@ def make_model(scene, config, vehicle):
 
     return model
 
-    # model.write("models/model.lp")
+def solve(model, config):
+    model.optimize()
 
+    # Construct list with vehicle location to be plotted
+    x_plot = []
+    y_plot = []
+    objective_value = model.getObjective().getValue()
 
-    # for i in range(number_of_time_steps):
-    #     print(f"Position for point {i} is {x[i, 0].X}, {x[i, 1].X}")
-    #     print(f"Distance for point {i} is {goal_distance[i].X}")
-    #     print(f"True distance for point {i} is {max((x_goal[0] - x[i, 0].X) * np.cos(2 * np.pi / NORMALS * n) + (x_goal[1] - x[i, 1].X) * np.sin(2 * np.pi / NORMALS * n) for n in range(NORMALS))}")
+    for i in range(config.steps):
+        x_plot.append(model.getVarByName(f"X[time={i},dim={0}]").X)
+        y_plot.append(model.getVarByName(f"X[time={i},dim={1}]").X)
+        # Stop plot once goal is reached.
+        if model.getVarByName(f"B_goal_{i}").X == 1:
+            break
+
+    return np.array([x_plot, y_plot]), objective_value
+
+def plot(path, scene):
+    # Define figure and axis.
+    fig, ax = plt.subplots()
+
+    # Set limits
+    ax.set_xlim(scene.map_bounds[0, 0], scene.map_bounds[1, 0])
+    ax.set_ylim(scene.map_bounds[0, 1], scene.map_bounds[1, 1])
+
+    # Plot vehicle location
+    ax.plot(path[0], path[1], marker=".", color='red', label="Path")
+    ax.plot(scene.goal[0], scene.goal[1], marker="X", color='r', label="Goal")
+
+    # Plot obstacles
+    for obstacle in scene.obstacles:
+        origin = obstacle[0]
+        delta = obstacle[1] - obstacle[0]
+        width = delta[0]
+        height = delta[1]
+
+        ax.add_patch(Rectangle(origin, width, height, color='dimgrey'))
+
+    # display plot
+    plt.show()
 
 
 
@@ -377,7 +390,7 @@ if __name__ == "__main__":
     # Limit on parameters
     map_bound = np.array([[0, 0], [400, 350]])  # Map bounds (dx2 array with [lower_left, upper_right])
     v_max = 5  # Maximum velocity (scalar)
-    u_max = 0.0  # Maximum input (scalar)
+    u_max = 1.0  # Maximum input (scalar)
 
     r_plan = 150
     number_of_steps = 25
@@ -386,10 +399,12 @@ if __name__ == "__main__":
     skip_factor = 1  # this is a little broken, keep it at 1 for now
 
     MAP = Scene(map_bound, list_of_obstacles, x_goal)
-    MAP.show_scene()
+    #MAP.show_scene()
 
     CONFIG = Config(16, 2, 25, 1e6)
 
-    vehicle = Vehicle(x_init, v_init, v_max, u_max)
+    vehicle = Vehicle(v_max, u_max, x_init, v_init)
 
     model = make_model(MAP, CONFIG, vehicle)
+    path, objective = solve(model, CONFIG)
+    plot(path, MAP)
