@@ -16,6 +16,10 @@ import re
 import numpy as np
 import networkx as nx
 import pickle
+from datetime import datetime
+import os
+
+time = datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")
 
 
 class Scene:
@@ -28,6 +32,13 @@ class Scene:
         self.obstacles = obstacles
         self.goal = goal
         self.gradient_map = self.a_star()
+
+    def save_to_file(self):
+        try:
+            with open(f'pickle_data/{time}/scene.pickle', 'wb') as f:
+                pickle.dump(self, f)
+        except IOError:
+            print("Error: Could not save scene to file.")
 
     def collision_detection(self, x):
         '''
@@ -109,6 +120,13 @@ class Config:
         self.exec_horizon = exec_horizon
         self.big_m = big_m
 
+    def save_to_file(self):
+        try:
+            with open(f'pickle_data/{time}/config.pickle', 'wb') as f:
+                pickle.dump(self, f)
+        except IOError:
+            print("Error: Could not save config to file.")
+
 
 class Vehicle:
 
@@ -133,7 +151,7 @@ class Results:
 
     def save_to_file(self):
         try:
-            with open('pickle_data/results.pickle', 'wb') as f:
+            with open(f'pickle_data/{time}/results.pickle', 'wb') as f:
                 pickle.dump(self, f)
         except IOError:
             print("Error: Could not save results to file.")
@@ -441,8 +459,8 @@ if __name__ == "__main__":
 
     CONFIG = Config(normals=16,
                     dimension=2,
-                    plan_horizon=6,
-                    exec_horizon=2,
+                    plan_horizon=10,
+                    exec_horizon=5,
                     big_m=1e6)
 
     vehicle = Vehicle(v_max=5.0,
@@ -463,4 +481,11 @@ if __name__ == "__main__":
             break
         model = update(model, vehicle, CONFIG)
 
+    directory = f"{time}"
+    parent_dir = "pickle_data"
+    path = os.path.join(parent_dir, directory)
+    os.mkdir(path)
+
     results.save_to_file()
+    MAP.save_to_file()
+    CONFIG.save_to_file()
