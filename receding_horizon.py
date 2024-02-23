@@ -17,14 +17,16 @@ import numpy as np
 import networkx as nx
 import pickle
 
+
 class Scene:
     '''
     hey
     '''
+
     def __init__(self, map_bounds, obstacles, goal):
-        self.map_bounds   = map_bounds
-        self.obstacles    = obstacles
-        self.goal         = goal
+        self.map_bounds = map_bounds
+        self.obstacles = obstacles
+        self.goal = goal
         self.gradient_map = self.a_star()
 
     def collision_detection(self, x):
@@ -53,7 +55,7 @@ class Scene:
                                 continue
                             else:
                                 graph.add_edge(f"X:{i}, Y:{j}", f"X:{i + k}, Y:{j + l}",
-                                                         weight=math.sqrt(k ** 2 + l ** 2))
+                                               weight=math.sqrt(k ** 2 + l ** 2))
         cost = dict(nx.single_source_bellman_ford_path_length(graph, f"X:{self.goal[0]}, Y:{self.goal[1]}"))
 
         for i in range(self.map_bounds[0, 0], self.map_bounds[1, 0]):
@@ -94,17 +96,19 @@ class Scene:
 
             ax.add_patch(Rectangle(origin, width, height, color='dimgrey'))
 
-        ax.plot(self.goal[0], self.goal[1], marker="X", color = "r", label = "goal")
+        ax.plot(self.goal[0], self.goal[1], marker="X", color="r", label="goal")
         plt.show()
+
 
 class Config:
 
-    def __init__(self, normals, dimension, plan_horizon, exec_horizon, big_m = 1e6):
-        self.normals   = normals
+    def __init__(self, normals, dimension, plan_horizon, exec_horizon, big_m=1e6):
+        self.normals = normals
         self.dimension = dimension
         self.plan_horizon = plan_horizon
         self.exec_horizon = exec_horizon
         self.big_m = big_m
+
 
 class Vehicle:
 
@@ -114,13 +118,33 @@ class Vehicle:
         self.x_init = x_init
         self.v_init = v_init
 
-def make_model(scene, config, vehicle):
 
+class Results:
+    def __init__(self):
+        self.plan_path = []
+        self.exec_path = []
+
+    def update_path(self, plan_ext, exec_ext):
+        self.plan_path.append(plan_ext)
+        self.exec_path.append(exec_ext)
+
+    def last_exec_point(self):
+        return self.exec_path[-1][-1]
+
+    def save_to_file(self):
+        try:
+            with open('pickle_data/results.pickle', 'wb') as f:
+                pickle.dump(self, f)
+        except IOError:
+            print("Error: Could not save results to file.")
+
+
+def make_model(scene, config, vehicle):
     # Create MILP model.
     model = gp.Model("Path Planning")
 
     # Model constants
-    R =  config.big_m # Big number.
+    R = config.big_m  # Big number.
     NORMALS = config.normals  # Number of normals used for vector magnitude calculation.
     DIMENSION = config.dimension  # Number of dimensions.
     STEPS = config.plan_horizon
@@ -305,7 +329,8 @@ def make_model(scene, config, vehicle):
 
     OBJECTIVE = model.setObjective(gp.quicksum(interpolation_points[i, j] * gradient_map[f"X:{i}, Y:{j}"] for i in
                                                range(map_bound[0, 0], map_bound[1, 0]) for j in
-                                               range(map_bound[0, 1], map_bound[1, 1])) - STEPS * b_reach[0] + gp.quicksum(
+                                               range(map_bound[0, 1], map_bound[1, 1])) - STEPS * b_reach[
+                                       0] + gp.quicksum(
         b_goal[i] * i for i in range(STEPS)), gp.GRB.MINIMIZE)
     model.update()
 
@@ -347,7 +372,6 @@ def plot(model, scene, config):
 
 
 def update(model, vehicle, config):
-
     x_path = []
     y_path = []
     for i in range(config.plan_horizon):
@@ -357,8 +381,10 @@ def update(model, vehicle, config):
         if model.getVarByName(f"B_goal_{i}").X == 1:
             break
 
-    x_end = np.array([model.getVarByName(f"X[time={config.exec_horizon - 1},dim={0}]").X, model.getVarByName(f"X[time={config.exec_horizon - 1},dim={1}]").X])
-    x_prev = np.array([model.getVarByName(f"X[time={config.exec_horizon - 2},dim={0}]").X, model.getVarByName(f"X[time={config.exec_horizon - 2},dim={1}]").X])
+    x_end = np.array([model.getVarByName(f"X[time={config.exec_horizon - 1},dim={0}]").X,
+                      model.getVarByName(f"X[time={config.exec_horizon - 1},dim={1}]").X])
+    x_prev = np.array([model.getVarByName(f"X[time={config.exec_horizon - 2},dim={0}]").X,
+                       model.getVarByName(f"X[time={config.exec_horizon - 2},dim={1}]").X])
     v_end = x_end - x_prev
     # TODO fix end edge case
 
@@ -370,7 +396,6 @@ def update(model, vehicle, config):
     # model.getConstrByName("CONST_V_INIT[dim=0]").rhs = vehicle.v_init[0]
     # model.getConstrByName("CONST_V_INIT[dim=1]").rhs = vehicle.v_init[1]
 
-
     model.setAttr("RHS", model.getConstrByName("CONST_X_INIT[dim=0]"), vehicle.x_init[0])
     model.setAttr("RHS", model.getConstrByName("CONST_X_INIT[dim=1]"), vehicle.x_init[1])
     model.setAttr("RHS", model.getConstrByName("CONST_V_INIT[dim=0]"), vehicle.v_init[0])
@@ -379,6 +404,7 @@ def update(model, vehicle, config):
     model.update()
 
     return model
+
 
 def get_path(model, config):
     # Define figure and axis.
@@ -392,17 +418,16 @@ def get_path(model, config):
             break
 
     plan_path = np.array([x_path, y_path]).T
-    exec_path = plan_path[:config.exec_horizon-1]
+    exec_path = plan_path[:config.exec_horizon - 1]
 
     return plan_path, exec_path
-
-
 
 
 if __name__ == "__main__":
     list_of_obstacles = []
     # Define obstacles.
-    list_of_obstacles.append(np.array([[150, 200], [200, 410]]))  # Obstacle bounds (dx2 array with [lower_left, upper_right])
+    list_of_obstacles.append(
+        np.array([[150, 200], [200, 410]]))  # Obstacle bounds (dx2 array with [lower_left, upper_right])
     list_of_obstacles.append(np.array([[10, -10], [30, 250]]))
     list_of_obstacles.append(np.array([[50, 50], [80, 400]]))
     list_of_obstacles.append(np.array([[250, 250], [420, 260]]))
@@ -410,24 +435,22 @@ if __name__ == "__main__":
     list_of_obstacles.append(np.array([[270, 210], [420, 220]]))
     list_of_obstacles.append(np.array([[390, 210], [420, 260]]))
 
-    MAP = Scene(map_bounds = np.array([[0, 0],[400, 350]]),
-                obstacles = list_of_obstacles,
-                goal = np.array([350, 340]))
+    MAP = Scene(map_bounds=np.array([[0, 0], [400, 350]]),
+                obstacles=list_of_obstacles,
+                goal=np.array([350, 340]))
 
-    CONFIG = Config(normals = 16,
-                    dimension = 2,
-                    plan_horizon = 15,
-                    exec_horizon = 10,
-                    big_m = 1e6)
+    CONFIG = Config(normals=16,
+                    dimension=2,
+                    plan_horizon=6,
+                    exec_horizon=2,
+                    big_m=1e6)
 
-    vehicle = Vehicle(v_max = 5.0,
-                      u_max = 1.0,
-                      x_init = np.array([325, 50]),
-                      v_init = np.array([0, 0]))
+    vehicle = Vehicle(v_max=5.0,
+                      u_max=1.0,
+                      x_init=np.array([1, 1]),
+                      v_init=np.array([0, 0]))
 
-
-    plan_path = []
-    exec_path = []
+    results = Results()
 
     model = make_model(MAP, CONFIG, vehicle)
     #MAP.show_scene()
@@ -435,9 +458,9 @@ if __name__ == "__main__":
     while True:
         model.optimize()
         plan, exec = get_path(model, CONFIG)
-        print(plan)
-        plan_path.append(plan)
-        exec_path.append(exec)
-
-        plot(model, MAP, CONFIG)
+        results.update_path(plan, exec)
+        if results.last_exec_point()[0] == MAP.goal[0] and results.last_exec_point()[1] == MAP.goal[1]:
+            break
         model = update(model, vehicle, CONFIG)
+
+    results.save_to_file()

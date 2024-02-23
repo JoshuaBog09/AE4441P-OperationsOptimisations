@@ -9,18 +9,17 @@ import pickle
 
 
 def receding_horizon_model(x_init,
-                             v_init,
-                             list_of_obstacles,
-                             x_goal,
-                             distance_map_dict,
-                             v_max = 10,
-                             u_max = 0,
-                             r_plan = 150,
-                             number_of_steps = 250,
-                             NORMALS = 5,
-                             DIMENSION = 2,
-                             map_bound = np.array([[0, 0], [600, 600]])):
-
+                           v_init,
+                           list_of_obstacles,
+                           x_goal,
+                           distance_map_dict,
+                           v_max=10,
+                           u_max=0,
+                           r_plan=150,
+                           number_of_steps=250,
+                           NORMALS=5,
+                           DIMENSION=2,
+                           map_bound=np.array([[0, 0], [600, 600]])):
     '''
     Set up receding horizon Gerobi model for receding horizon.
     Inputs:
@@ -244,9 +243,9 @@ def receding_horizon_model(x_init,
             # u_max, name=f"ONST_U_MAX[time={i},normals={n}]")
 
     # Relation input, velocity and position next point.
-    # CONST_POS = {}
+    CONST_POS = {}
     # CONST_NORMAL_DISTANCE = {}
-
+    #
     # for i in range(number_of_time_steps):
     #     for n in range(NORMALS):
     #         CONST_NORMAL_DISTANCE[i, n] = model.addLConstr((x_goal[0] - x[i, 0]) * np.cos(2 * np.pi / NORMALS * n) + (
@@ -254,10 +253,10 @@ def receding_horizon_model(x_init,
     #                                                        name=f"CONST_NORMAL_DISTANCE[time={i},normal={n}]")
 
     # Correlate input and the velocity
-    # for i in range(number_of_time_steps - 2):
-    #     for d in range(DIMENSION):
-    #         CONST_POS[i, d] = model.addLConstr(x[i + 2, d], '=', 2 * x[i + 1, d] - x[i, d] + u[i + 1, d],
-    #                                            name=f"CONST_POS[time={i},dim={d}]")
+    for i in range(number_of_time_steps - 2):
+        for d in range(DIMENSION):
+            CONST_POS[i, d] = model.addLConstr(x[i + 2, d], '=', 2 * x[i + 1, d] - x[i, d] + u[i + 1, d],
+                                               name=f"CONST_POS[time={i},dim={d}]")
 
     object_var = {}
     object_constraint = {}
@@ -274,11 +273,10 @@ def receding_horizon_model(x_init,
 
     # model.write("models/model.lp")
 
-
-    # for i in range(number_of_time_steps):
-    #     print(f"Position for point {i} is {x[i, 0].X}, {x[i, 1].X}")
-    #     print(f"Distance for point {i} is {goal_distance[i].X}")
-    #     print(f"True distance for point {i} is {max((x_goal[0] - x[i, 0].X) * np.cos(2 * np.pi / NORMALS * n) + (x_goal[1] - x[i, 1].X) * np.sin(2 * np.pi / NORMALS * n) for n in range(NORMALS))}")
+    # for i in range(number_of_time_steps): print(f"Position for point {i} is {x[i, 0].X}, {x[i, 1].X}") print(
+    # f"Distance for point {i} is {goal_distance[i].X}") print(f"True distance for point {i} is {max((x_goal[0] - x[
+    # i, 0].X) * np.cos(2 * np.pi / NORMALS * n) + (x_goal[1] - x[i, 1].X) * np.sin(2 * np.pi / NORMALS * n) for n in
+    # range(NORMALS))}")
 
 
 def solve(model, setup_data):
@@ -288,7 +286,6 @@ def solve(model, setup_data):
     x_plot = []
     y_plot = []
     objective_value = model.getObjective().getValue()
-
 
     for i in range(setup_data.number_of_steps):
         x_plot.append(model.getVarByName(f"X[time={i},dim={0}]").X)
@@ -423,7 +420,7 @@ def fix_mistakes_from_the_past(cost, map_bounds):
 # ============ Handle saved level data ====================
 
 def get_level_data(setup_data, plot_heatmap=False):
-    use_loaded_data = False  # a variable that will determine if we recalculate stuff, or we can use loaded data
+    use_loaded_data = True  # a variable that will determine if we recalculate stuff, or we can use loaded data
 
     try:
         with open('pickle_data/setup_data.pickle', 'rb') as handle:
@@ -478,7 +475,7 @@ def get_level_data(setup_data, plot_heatmap=False):
 # ================= Handle loading saved model data ====================
 
 def generate_model(setup_data):
-    use_disk_data = False  # a variable that will determine if we recalculate stuff, or we can use loaded data
+    use_disk_data = True  # a variable that will determine if we recalculate stuff, or we can use loaded data
 
     try:
         with open('pickle_data/setup_data.pickle', 'rb') as handle:
@@ -498,9 +495,11 @@ def generate_model(setup_data):
         else:
             print("Setup data has changed, recalculating model.")
 
-    model = receding_horizon_model(setup_data.x_init, setup_data.v_init, setup_data.obstacle_list, setup_data.goal_pos, get_level_data(setup_data), setup_data.v_max, setup_data.u_max,
-                             20,
-                             setup_data.number_of_steps, setup_data.normal, setup_data.dimension, setup_data.map_limit)
+    model = receding_horizon_model(setup_data.x_init, setup_data.v_init, setup_data.obstacle_list, setup_data.goal_pos,
+                                   get_level_data(setup_data), setup_data.v_max, setup_data.u_max,
+                                   20,
+                                   setup_data.number_of_steps, setup_data.normal, setup_data.dimension,
+                                   setup_data.map_limit)
 
     model.write("models/model.lp")
 
@@ -545,7 +544,8 @@ class SetUpData:
 if __name__ == '__main__':
     list_of_obstacles = []
     # Define obstacles.
-    list_of_obstacles.append(np.array([[150, 200], [200, 410]]))  # Obstacle bounds (dx2 array with [lower_left, upper_right])
+    list_of_obstacles.append(
+        np.array([[150, 200], [200, 410]]))  # Obstacle bounds (dx2 array with [lower_left, upper_right])
     list_of_obstacles.append(np.array([[10, -10], [30, 250]]))
     list_of_obstacles.append(np.array([[50, 50], [80, 400]]))
     list_of_obstacles.append(np.array([[250, 250], [420, 260]]))
@@ -563,7 +563,7 @@ if __name__ == '__main__':
     # Limit on parameters
     map_bound = np.array([[0, 0], [400, 350]])  # Map bounds (dx2 array with [lower_left, upper_right])
     v_max = 5  # Maximum velocity (scalar)
-    u_max = 0.0  # Maximum input (scalar)
+    u_max = 1  # Maximum input (scalar)
 
     r_plan = 150
     number_of_steps = 25
@@ -579,7 +579,6 @@ if __name__ == '__main__':
     path, obj = solve(model, setup_data)
 
     plot(path, x_goal, list_of_obstacles, map_limit=np.array([[0, 0], [600, 600]]))
-
 
     # point_graph = generate_map(list_of_obstacles, map_bound, skip_factor)
     # cost_dict = cost_cal(point_graph, x_goal)
