@@ -312,9 +312,11 @@ def make_model(scene, config, vehicle):
     return model
 
 
-def plot(path, scene):
+def plot(model, scene, config):
     # Define figure and axis.
-    for i in range(config.steps):
+    x_path = []
+    y_path = []
+    for i in range(config.plan_horizon):
         x_path.append(model.getVarByName(f"X[time={i},dim={0}]").X)
         y_path.append(model.getVarByName(f"X[time={i},dim={1}]").X)
         # Stop plot once goal is reached.
@@ -328,7 +330,7 @@ def plot(path, scene):
     ax.set_ylim(scene.map_bounds[0, 1], scene.map_bounds[1, 1])
 
     # Plot vehicle location
-    ax.plot(path[0], path[1], marker=".", color='red', label="Path")
+    ax.plot(x_path, y_path, marker=".", color='red', label="Path")
     ax.plot(scene.goal[0], scene.goal[1], marker="X", color='r', label="Goal")
 
     # Plot obstacles
@@ -363,10 +365,16 @@ def update(model, vehicle, config):
     vehicle.x_init = x_end
     vehicle.v_init = v_end
 
-    model.getConstrByName("CONST_X_INIT[0]").rhs = vehicle.x_init[0]
-    model.getConstrByName("CONST_X_INIT[1]").rhs = vehicle.x_init[1]
-    model.getConstrByName("CONST_V_INIT[0]").rhs = vehicle.v_init[0]
-    model.getConstrByName("CONST_V_INIT[1]").rhs = vehicle.v_init[1]
+    # model.getConstrByName("CONST_X_INIT[dim=0]").rhs = vehicle.x_init[0]
+    # model.getConstrByName("CONST_X_INIT[dim=1]").rhs = vehicle.x_init[1]
+    # model.getConstrByName("CONST_V_INIT[dim=0]").rhs = vehicle.v_init[0]
+    # model.getConstrByName("CONST_V_INIT[dim=1]").rhs = vehicle.v_init[1]
+
+
+    model.setAttr("RHS", model.getConstrByName("CONST_X_INIT[dim=0]"), vehicle.x_init[0])
+    model.setAttr("RHS", model.getConstrByName("CONST_X_INIT[dim=1]"), vehicle.x_init[1])
+    model.setAttr("RHS", model.getConstrByName("CONST_V_INIT[dim=0]"), vehicle.v_init[0])
+    model.setAttr("RHS", model.getConstrByName("CONST_V_INIT[dim=1]"), vehicle.v_init[1])
 
     model.update()
 
@@ -402,7 +410,7 @@ if __name__ == "__main__":
     model = make_model(MAP, CONFIG, vehicle)
     #MAP.show_scene()
 
-    for i in range(3):
+    while True:
         model.optimize()
+        plot(model, MAP, CONFIG)
         model = update(model, vehicle, CONFIG)
-        plot(model, MAP)
