@@ -18,7 +18,9 @@ import networkx as nx
 import pickle
 
 class Scene:
-
+    '''
+    hey
+    '''
     def __init__(self, map_bounds, obstacles, goal):
         self.map_bounds   = map_bounds
         self.obstacles    = obstacles
@@ -97,10 +99,11 @@ class Scene:
 
 class Config:
 
-    def __init__(self, normals, dimension, steps, big_m = 1e6):
+    def __init__(self, normals, dimension, plan_horizon, exec_horizon, big_m = 1e6):
         self.normals   = normals
         self.dimension = dimension
-        self.steps = steps
+        self.plan_horizon = plan_horizon
+        self.exec_horizon = exec_horizon
         self.big_m = big_m
 
 class Vehicle:
@@ -120,7 +123,7 @@ def make_model(scene, config, vehicle):
     R =  config.big_m # Big number.
     NORMALS = config.normals  # Number of normals used for vector magnitude calculation.
     DIMENSION = config.dimension  # Number of dimensions.
-    number_of_time_steps = config.steps
+    STEPS = config.plan_horizon
 
     # Define scene properties
     list_of_obstacles = scene.obstacles
@@ -128,13 +131,9 @@ def make_model(scene, config, vehicle):
     gradient_map = scene.gradient_map
     x_goal = scene.goal  # Goal position
 
-
-
-    # Initial conditions of the vehicle.
+    # Initial conditions and limits of the vehicle.
     x_init = vehicle.x_init  # Initial position of the vehicle.
     v_init = vehicle.v_init  # Initial velocity of the vehicle.
-
-    # Limit on parameters
     v_max = vehicle.v_max  # Maximum velocity (scalar)
     u_max = vehicle.u_max  # Maximum input (scalar)
 
@@ -161,7 +160,7 @@ def make_model(scene, config, vehicle):
     b_reach[0] = model.addVar(vtype=gp.GRB.BINARY, name=f"B_reach")
 
     # Define the variables for each time step.
-    for i in range(number_of_time_steps):
+    for i in range(STEPS):
 
         goal_distance[i] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"goal_distance[time={i}]", lb=0,
                                         ub=map_bound[1, 0] + map_bound[1, 1])
@@ -199,8 +198,8 @@ def make_model(scene, config, vehicle):
 
     # Interpolation squares
 
-    for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor):
-        for j in range(map_bound[0, 1], map_bound[1, 1], skip_factor):
+    for i in range(map_bound[0, 0], map_bound[1, 0]):
+        for j in range(map_bound[0, 1], map_bound[1, 1]):
             interpolation_points[i, j] = model.addVar(vtype=gp.GRB.BINARY,
                                                       name=f"Interpolation_point[x_low={i},y_low={j}]")
 
@@ -223,7 +222,7 @@ def make_model(scene, config, vehicle):
 
     CONST_X_GOAL = {}
 
-    for i in range(number_of_time_steps - 1):
+    for i in range(STEPS - 1):
         for d in range(DIMENSION):
             CONST_X_GOAL[i, d, 0] = model.addLConstr(x[i, d] - x_goal[d], '<=', R * (1 - b_goal[i]),
                                                      name=f"CONST_X_GOAL[time={i},dim={d},const=0]")
@@ -231,14 +230,14 @@ def make_model(scene, config, vehicle):
                                                      name=f"CONST_X_GOAL[time={i},dim={d},const=1]")
 
     # Constraint for ensuring exactly one node reaches the goal.
-    CONST_REACH_GOAL = model.addLConstr(gp.quicksum(b_goal[i] for i in range(number_of_time_steps)), '=', b_reach[0],
+    CONST_REACH_GOAL = model.addLConstr(gp.quicksum(b_goal[i] for i in range(STEPS)), '=', b_reach[0],
                                         name="CONST_REACH_GOAL")
 
     # Constraints for ensuring the robot does not collide with the obstacles.
     CONST_OBSTACLE = {}
     CONST_OBSTACLE_DETECTION = {}
 
-    for i in range(number_of_time_steps):
+    for i in range(STEPS):
 
         for k, obstacle in enumerate(list_of_obstacles):
 
@@ -256,32 +255,32 @@ def make_model(scene, config, vehicle):
     CONST_IPSQUARE1 = {}
     CONST_IPSQUARE2 = {}
 
-    trailing_x = x[number_of_time_steps - 1, 0]
-    trailing_y = x[number_of_time_steps - 1, 1]
+    trailing_x = x[STEPS - 1, 0]
+    trailing_y = x[STEPS - 1, 1]
 
-    for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor):
-        for j in range(map_bound[0, 1], map_bound[1, 1], skip_factor):
+    for i in range(map_bound[0, 0], map_bound[1, 0]):
+        for j in range(map_bound[0, 1], map_bound[1, 1]):
             CONST_IPSQUARES[i, j, 0] = model.addLConstr(trailing_x, ">=",
-                                                        (i - skip_factor / 2) - R * (1 - interpolation_points[i, j]),
+                                                        (i / 2) - R * (1 - interpolation_points[i, j]),
                                                         name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={0}]")
             CONST_IPSQUARES[i, j, 1] = model.addLConstr(trailing_x, "<",
-                                                        (i + skip_factor / 2) + R * (1 - interpolation_points[i, j]),
+                                                        (i / 2) + R * (1 - interpolation_points[i, j]),
                                                         name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={1}]")
             CONST_IPSQUARES[i, j, 2] = model.addLConstr(trailing_y, ">=",
-                                                        (j - skip_factor / 2) - R * (1 - interpolation_points[i, j]),
+                                                        (j / 2) - R * (1 - interpolation_points[i, j]),
                                                         name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={2}]")
             CONST_IPSQUARES[i, j, 3] = model.addLConstr(trailing_y, "<",
-                                                        (j + skip_factor / 2) + R * (1 - interpolation_points[i, j]),
+                                                        (j / 2) + R * (1 - interpolation_points[i, j]),
                                                         name=f"CONST_IPSQUARE_DETECTION[x_low={i},y_low={j},bound={3}]")
 
     CONST_IPSQUARE2[0] = model.addLConstr(gp.quicksum(
-        interpolation_points[i, j] for i in range(map_bound[0, 0], map_bound[1, 0], skip_factor) for j in
-        range(map_bound[0, 1], map_bound[1, 1], skip_factor)),
+        interpolation_points[i, j] for i in range(map_bound[0, 0], map_bound[1, 0]) for j in
+        range(map_bound[0, 1], map_bound[1, 1])),
         "=", 1)
 
     # Constrains for the binary values that will tell us which node is active in the distance map.
     # CONST_DMAP = {}
-    # for i in range(number_of_time_steps):
+    # for i in range(STEPS):
     #     for j, node in enumerate(distance_map):
     #         for d in range(DIMENSION):
     #             continue
@@ -292,7 +291,7 @@ def make_model(scene, config, vehicle):
     CONST_GOAL_DISTANCE = {}
 
     # Other constraints for ensuring the aircraft doesn't break laws of physics
-    for i in range(number_of_time_steps - 1):
+    for i in range(STEPS - 1):
 
         for n in range(NORMALS):
             # Velocity constrain
@@ -308,7 +307,7 @@ def make_model(scene, config, vehicle):
 
     # Correlate input and the velocity
     CONST_POS = {}
-    for i in range(number_of_time_steps - 2):
+    for i in range(STEPS - 2):
         for d in range(DIMENSION):
             CONST_POS[i, d] = model.addLConstr(x[i + 2, d], '=', 2 * x[i + 1, d] - x[i, d] + u[i + 1, d],
                                                name=f"CONST_POS[time={i},dim={d}]")
@@ -318,33 +317,23 @@ def make_model(scene, config, vehicle):
     object_var[0] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"object_var")
 
     OBJECTIVE = model.setObjective(gp.quicksum(interpolation_points[i, j] * gradient_map[f"X:{i}, Y:{j}"] for i in
-                                               range(map_bound[0, 0], map_bound[1, 0], skip_factor) for j in
-                                               range(map_bound[0, 1], map_bound[1, 1],
-                                                     skip_factor)) - number_of_time_steps * b_reach[0] + gp.quicksum(
-        b_goal[i] * i for i in range(number_of_time_steps)), gp.GRB.MINIMIZE)
+                                               range(map_bound[0, 0], map_bound[1, 0]) for j in
+                                               range(map_bound[0, 1], map_bound[1, 1])) - STEPS * b_reach[0] + gp.quicksum(
+        b_goal[i] * i for i in range(STEPS)), gp.GRB.MINIMIZE)
     model.update()
 
     return model
 
-def solve(model, config):
-    model.optimize()
 
-    # Construct list with vehicle location to be plotted
-    x_plot = []
-    y_plot = []
-    objective_value = model.getObjective().getValue()
-
+def plot(path, scene):
+    # Define figure and axis.
     for i in range(config.steps):
-        x_plot.append(model.getVarByName(f"X[time={i},dim={0}]").X)
-        y_plot.append(model.getVarByName(f"X[time={i},dim={1}]").X)
+        x_path.append(model.getVarByName(f"X[time={i},dim={0}]").X)
+        y_path.append(model.getVarByName(f"X[time={i},dim={1}]").X)
         # Stop plot once goal is reached.
         if model.getVarByName(f"B_goal_{i}").X == 1:
             break
 
-    return np.array([x_plot, y_plot]), objective_value
-
-def plot(path, scene):
-    # Define figure and axis.
     fig, ax = plt.subplots()
 
     # Set limits
@@ -368,6 +357,35 @@ def plot(path, scene):
     plt.show()
 
 
+def update(model, vehicle, config):
+    # Construct list with vehicle location to be plotted
+    x_path = []
+    y_path = []
+
+    for i in range(config.plan_horizon):
+        x_path.append(model.getVarByName(f"X[time={i},dim={0}]").X)
+        y_path.append(model.getVarByName(f"X[time={i},dim={1}]").X)
+        # Stop plot once goal is reached.
+        if model.getVarByName(f"B_goal_{i}").X == 1:
+            break
+
+    x_end = np.array([model.getVarByName(f"X[time={config.exec_horizon - 1},dim={0}]").X, model.getVarByName(f"X[time={config.exec_horizon - 1},dim={1}]").X])
+    x_prev = np.array([model.getVarByName(f"X[time={config.exec_horizon - 2},dim={0}]").X, model.getVarByName(f"X[time={config.exec_horizon - 2},dim={1}]").X])
+    v_end = x_end - x_prev
+    # TODO fix end edge case
+
+    vehicle.x_init = x_end
+    vehicle.v_init = v_end
+
+    model.setAttr("RHS", model.getConstrs("CONST_X_INIT[0]"), vehicle.x_init[0])
+    model.setAttr("RHS", model.getConstrs("CONST_X_INIT[1]"), vehicle.x_init[1])
+    model.setAttr("RHS", model.getConstrs("CONST_V_INIT[0]"), vehicle.v_init[0])
+    model.setAttr("RHS", model.getConstrs("CONST_V_INIT[1]"), vehicle.v_init[1])
+
+    model.update()
+
+    return model
+
 
 if __name__ == "__main__":
     list_of_obstacles = []
@@ -380,31 +398,25 @@ if __name__ == "__main__":
     list_of_obstacles.append(np.array([[270, 210], [420, 220]]))
     list_of_obstacles.append(np.array([[390, 210], [420, 260]]))
 
-    # Initial conditions of the vehicle.
-    x_init = [325, 235]  # Initial position of the vehicle.
-    v_init = [0, 0]  # Initial velocity of the vehicle.
+    MAP = Scene(map_bounds = np.array([[0, 0],[400, 350]]),
+                obstacles = list_of_obstacles,
+                goal = np.array([350, 340]))
 
-    # Final conditions of the vehicle at the goal.
-    x_goal = (390, 340)  # Goal position
+    CONFIG = Config(normals = 16,
+                    dimension = 2,
+                    plan_horizon = 25,
+                    exec_horizon = 10,
+                    big_m = 1e6)
 
-    # Limit on parameters
-    map_bound = np.array([[0, 0], [400, 350]])  # Map bounds (dx2 array with [lower_left, upper_right])
-    v_max = 5  # Maximum velocity (scalar)
-    u_max = 1.0  # Maximum input (scalar)
-
-    r_plan = 150
-    number_of_steps = 25
-    NORMALS = 32
-    DIMENSION = 2
-    skip_factor = 1  # this is a little broken, keep it at 1 for now
-
-    MAP = Scene(map_bound, list_of_obstacles, x_goal)
-    #MAP.show_scene()
-
-    CONFIG = Config(16, 2, 25, 1e6)
-
-    vehicle = Vehicle(v_max, u_max, x_init, v_init)
+    vehicle = Vehicle(v_max = 5.0,
+                      u_max = 1.0,
+                      x_init = np.array([325, 50]),
+                      v_init = np.array([0, 0]))
 
     model = make_model(MAP, CONFIG, vehicle)
-    path, objective = solve(model, CONFIG)
-    plot(path, MAP)
+    MAP.show_scene()
+
+    for i in range(3):
+        model.optimize()
+        model = update(model, vehicle, CONFIG)
+        plot(model, MAP)
