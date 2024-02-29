@@ -1,13 +1,3 @@
-'''
-@File           :
-@Date           :   dd-mm-yyyy
-@Aauthor        :   Justin Dubois
-@Contact        :   j.p.g.dubois@student.tudelft.nl
-@Version        :   1.0
-@License        :
-@Description    :
-'''
-
 import gurobipy as gp
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
@@ -21,10 +11,9 @@ import os
 
 time = datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")
 
-
 class Scene:
     '''
-    hey
+    Scene object stores all properties of the physical scene.
     '''
 
     def __init__(self, map_bounds, obstacles, goal):
@@ -162,22 +151,22 @@ def make_model(scene, config, vehicle):
     model = gp.Model("Path Planning")
 
     # Model constants
-    R = config.big_m  # Big number.
-    NORMALS = config.normals  # Number of normals used for vector magnitude calculation.
-    DIMENSION = config.dimension  # Number of dimensions.
-    STEPS = config.plan_horizon
+    R         = config.big_m
+    NORMALS   = config.normals
+    DIMENSION = config.dimension
+    STEPS     = config.plan_horizon
 
     # Define scene properties
     list_of_obstacles = scene.obstacles
-    map_bound = scene.map_bounds  # Map bounds (dx2 array with [lower_left, upper_right])
-    gradient_map = scene.gradient_map
-    x_goal = scene.goal  # Goal position
+    map_bound         = scene.map_bounds
+    gradient_map      = scene.gradient_map
+    x_goal            = scene.goal
 
     # Initial conditions and limits of the vehicle.
-    x_init = vehicle.x_init  # Initial position of the vehicle.
-    v_init = vehicle.v_init  # Initial velocity of the vehicle.
-    v_max = vehicle.v_max  # Maximum velocity (scalar)
-    u_max = vehicle.u_max  # Maximum input (scalar)
+    x_init = vehicle.x_init
+    v_init = vehicle.v_init
+    v_max  = vehicle.v_max
+    u_max  = vehicle.u_max
 
     # Define variable dictionaries.
     x = {}  # Decision variables for the position of the rover.
@@ -203,10 +192,8 @@ def make_model(scene, config, vehicle):
 
     # Define the variables for each time step.
     for i in range(STEPS):
-
         goal_distance[i] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"goal_distance[time={i}]", lb=0,
                                         ub=map_bound[1, 0] + map_bound[1, 1])
-
         for d in range(DIMENSION):
             # Position variables for the vehicle position, limited by the map bounds.
             x[i, d] = model.addVar(vtype=gp.GRB.CONTINUOUS, name=f"X[time={i},dim={d}]", lb=map_bound[0, d],
@@ -222,13 +209,14 @@ def make_model(scene, config, vehicle):
                 b_in[i, d, k, 1] = model.addVar(vtype=gp.GRB.BINARY, name=f"B_in[time={i},dim={d},obs={k},bound={1}]")
 
         # Binary indicating first node that reaches goal.
-        b_goal[i] = model.addVar(vtype=gp.GRB.BINARY, name=f"B_goal_{i}")
+        b_goal[i] = model.addVar(vtype=gp.GRB.BINARY, name=f"B_goal[time={i}]")
 
     for i, node in enumerate(distance_map):
-        b_active_dmap_node[i] = model.addVar(vtype=gp.GRB.BINARY, name=f"B_active_dmap_node_{i}")
+        b_active_dmap_node[i] = model.addVar(vtype=gp.GRB.BINARY, name=f"B_active_dmap_node[idx={i}]")
 
     # Interpolation squares
     for i in range(map_bound[0, 0], map_bound[1, 0]):
+
         for j in range(map_bound[0, 1], map_bound[1, 1]):
             interpolation_points[i, j] = model.addVar(vtype=gp.GRB.BINARY,
                                                       name=f"Interpolation_point[x_low={i},y_low={j}]")
@@ -236,7 +224,6 @@ def make_model(scene, config, vehicle):
     model.update()
 
     # =========== CREATE MODEL CONSTRAINTS ==========================
-
     # Constraints for forcing the initial conditions.
     CONST_X_INIT = {}
     CONST_V_INIT = {}
@@ -252,6 +239,7 @@ def make_model(scene, config, vehicle):
     CONST_X_GOAL = {}
 
     for i in range(STEPS - 1):
+
         for d in range(DIMENSION):
             CONST_X_GOAL[i, d, 0] = model.addLConstr(x[i, d] - x_goal[d], '<=', R * (1 - b_goal[i]),
                                                      name=f"CONST_X_GOAL[time={i},dim={d},const=0]")
@@ -259,8 +247,7 @@ def make_model(scene, config, vehicle):
                                                      name=f"CONST_X_GOAL[time={i},dim={d},const=1]")
 
     # Constraint for ensuring exactly one node reaches the goal.
-    CONST_REACH_GOAL = model.addLConstr(gp.quicksum(b_goal[i] for i in range(STEPS)), '=', b_reach[0],
-                                        name="CONST_REACH_GOAL")
+    CONST_REACH_GOAL = model.addLConstr(gp.quicksum(b_goal[i] for i in range(STEPS)), '=', b_reach[0], name="CONST_REACH_GOAL")
 
     # Constraints for ensuring the robot does not collide with the obstacles.
     CONST_OBSTACLE = {}
@@ -307,13 +294,6 @@ def make_model(scene, config, vehicle):
         range(map_bound[0, 1], map_bound[1, 1])),
         "=", 1)
 
-    # Constrains for the binary values that will tell us which node is active in the distance map.
-    # CONST_DMAP = {}
-    # for i in range(STEPS):
-    #     for j, node in enumerate(distance_map):
-    #         for d in range(DIMENSION):
-    #             continue
-
     # Constraints for ensuring the aircraft doesn't break laws of physics
     CONST_V_MAX = {}
     CONST_U_MAX = {}
@@ -337,6 +317,7 @@ def make_model(scene, config, vehicle):
     # Correlate input and the velocity
     CONST_POS = {}
     for i in range(STEPS - 2):
+
         for d in range(DIMENSION):
             CONST_POS[i, d] = model.addLConstr(x[i + 2, d], '=', 2 * x[i + 1, d] - x[i, d] + u[i + 1, d],
                                                name=f"CONST_POS[time={i},dim={d}]")
@@ -442,10 +423,9 @@ def get_path(model, config):
 
 
 if __name__ == "__main__":
+    # Obstacle bounds (dx2 array with [lower_left, upper_right])
     list_of_obstacles = []
-    # Define obstacles.
-    list_of_obstacles.append(
-        np.array([[150, 200], [200, 410]]))  # Obstacle bounds (dx2 array with [lower_left, upper_right])
+    list_of_obstacles.append(np.array([[150, 200], [200, 410]]))  
     list_of_obstacles.append(np.array([[10, -10], [30, 250]]))
     list_of_obstacles.append(np.array([[50, 50], [80, 400]]))
     list_of_obstacles.append(np.array([[250, 250], [420, 260]]))
@@ -453,25 +433,27 @@ if __name__ == "__main__":
     list_of_obstacles.append(np.array([[270, 210], [420, 220]]))
     list_of_obstacles.append(np.array([[390, 210], [420, 260]]))
 
-    MAP = Scene(map_bounds=np.array([[0, 0], [400, 350]]),
-                obstacles=list_of_obstacles,
-                goal=np.array([350, 340]))
+    MAP = Scene(map_bounds = np.array([[0, 0], [400, 350]]),
+                obstacles  = list_of_obstacles,
+                goal       = np.array([350, 340])
+                )
 
-    CONFIG = Config(normals=16,
-                    dimension=2,
-                    plan_horizon=10,
-                    exec_horizon=3,
-                    big_m=1e6)
+    CONFIG = Config(normals      = 16,
+                    dimension    = 2,
+                    plan_horizon = 10,
+                    exec_horizon = 3,
+                    big_m        = 1e6
+                    )
 
-    vehicle = Vehicle(v_max=5.0,
-                      u_max=0.5,
-                      x_init=np.array([1, 1]),
-                      v_init=np.array([0, 0]))
+    vehicle = Vehicle(v_max  = 5.0,
+                      u_max  = 0.5,
+                      x_init = np.array([1, 1]),
+                      v_init = np.array([0, 0])
+                      )
 
     results = Results()
 
     model = make_model(MAP, CONFIG, vehicle)
-    #MAP.show_scene()
 
     while True:
         model.optimize()

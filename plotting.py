@@ -42,7 +42,12 @@ def static_plot(scene: Scene, results: Results):
 
 def animate(i, ax, results: Results, config: Config):
     ax.plot(results.plan_path[i][:, 0], results.plan_path[i][:, 1], marker="", color='blue', linewidth=0.33, zorder=0)
-    ax.plot(results.exec_path[i][:, 0], results.exec_path[i][:, 1], marker=".", color='red', linewidth=1, zorder=10)
+
+    if i == 0:
+        ax.plot(results.exec_path[i][:, 0], results.exec_path[i][:, 1], marker=".", color='red', linewidth=1, zorder=10)
+    else:
+        path = np.vstack((results.exec_path[i-1][-1, :], results.exec_path[i]))
+        ax.plot(path[:, 0], path[:, 1], marker=".", color='red', linewidth=1, zorder=10)
 
 
 def animated_plot(scene: Scene, results: Results, config: Config):
@@ -70,7 +75,7 @@ def animated_plot(scene: Scene, results: Results, config: Config):
 
 if __name__ == "__main__":
     # static_plot(scene, results)
-    dir = ('pickle_data/2024_02_23-06_05_00_PM')
+    dir = ('pickle_data/2024_02_29-04_24_29_PM')
 
     # Load the data
     try:
