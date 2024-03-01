@@ -377,7 +377,7 @@ def update(model, vehicle, config):
         x_path.append(model.getVarByName(f"X[time={i},dim={0}]").X)
         y_path.append(model.getVarByName(f"X[time={i},dim={1}]").X)
         # Stop plot once goal is reached.
-        if model.getVarByName(f"B_goal_{i}").X == 1:
+        if model.getVarByName(f"B_goal[time={i}]").X == 1:
             break
 
     x_end = np.array([model.getVarByName(f"X[time={config.exec_horizon - 1},dim={0}]").X,
@@ -413,7 +413,7 @@ def get_path(model, config):
         x_path.append(model.getVarByName(f"X[time={i},dim={0}]").X)
         y_path.append(model.getVarByName(f"X[time={i},dim={1}]").X)
         # Stop plot once goal is reached.
-        if model.getVarByName(f"B_goal_{i}").X == 1:
+        if model.getVarByName(f"B_goal[time={i}]").X == 1:
             break
 
     plan_path = np.array([x_path, y_path]).T
@@ -440,8 +440,8 @@ if __name__ == "__main__":
 
     CONFIG = Config(normals      = 16,
                     dimension    = 2,
-                    plan_horizon = 10,
-                    exec_horizon = 3,
+                    plan_horizon = 30,
+                    exec_horizon = 2,
                     big_m        = 1e6
                     )
 
