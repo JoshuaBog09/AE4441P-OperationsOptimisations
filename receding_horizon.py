@@ -11,6 +11,7 @@ import os
 
 time = datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")
 
+
 class Scene:
     '''
     Scene object stores all properties of the physical scene.
@@ -151,22 +152,22 @@ def make_model(scene, config, vehicle):
     model = gp.Model("Path Planning")
 
     # Model constants
-    R         = config.big_m
-    NORMALS   = config.normals
+    R = config.big_m
+    NORMALS = config.normals
     DIMENSION = config.dimension
-    STEPS     = config.plan_horizon
+    STEPS = config.plan_horizon
 
     # Define scene properties
     list_of_obstacles = scene.obstacles
-    map_bound         = scene.map_bounds
-    gradient_map      = scene.gradient_map
-    x_goal            = scene.goal
+    map_bound = scene.map_bounds
+    gradient_map = scene.gradient_map
+    x_goal = scene.goal
 
     # Initial conditions and limits of the vehicle.
     x_init = vehicle.x_init
     v_init = vehicle.v_init
-    v_max  = vehicle.v_max
-    u_max  = vehicle.u_max
+    v_max = vehicle.v_max
+    u_max = vehicle.u_max
 
     # Define variable dictionaries.
     x = {}  # Decision variables for the position of the rover.
@@ -247,7 +248,8 @@ def make_model(scene, config, vehicle):
                                                      name=f"CONST_X_GOAL[time={i},dim={d},const=1]")
 
     # Constraint for ensuring exactly one node reaches the goal.
-    CONST_REACH_GOAL = model.addLConstr(gp.quicksum(b_goal[i] for i in range(STEPS)), '=', b_reach[0], name="CONST_REACH_GOAL")
+    CONST_REACH_GOAL = model.addLConstr(gp.quicksum(b_goal[i] for i in range(STEPS)), '=', b_reach[0],
+                                        name="CONST_REACH_GOAL")
 
     # Constraints for ensuring the robot does not collide with the obstacles.
     CONST_OBSTACLE = {}
@@ -425,7 +427,7 @@ def get_path(model, config):
 if __name__ == "__main__":
     # Obstacle bounds (dx2 array with [lower_left, upper_right])
     list_of_obstacles = []
-    list_of_obstacles.append(np.array([[150, 200], [200, 410]]))  
+    list_of_obstacles.append(np.array([[150, 200], [200, 410]]))
     list_of_obstacles.append(np.array([[10, -10], [30, 250]]))
     list_of_obstacles.append(np.array([[50, 50], [80, 400]]))
     list_of_obstacles.append(np.array([[250, 250], [420, 260]]))
@@ -433,22 +435,22 @@ if __name__ == "__main__":
     list_of_obstacles.append(np.array([[270, 210], [420, 220]]))
     list_of_obstacles.append(np.array([[390, 210], [420, 260]]))
 
-    MAP = Scene(map_bounds = np.array([[0, 0], [400, 350]]),
-                obstacles  = list_of_obstacles,
-                goal       = np.array([350, 340])
+    MAP = Scene(map_bounds=np.array([[0, 0], [400, 350]]),
+                obstacles=list_of_obstacles,
+                goal=np.array([350, 340])
                 )
 
-    CONFIG = Config(normals      = 16,
-                    dimension    = 2,
-                    plan_horizon = 30,
-                    exec_horizon = 2,
-                    big_m        = 1e6
+    CONFIG = Config(normals=16,
+                    dimension=2,
+                    plan_horizon=30,
+                    exec_horizon=3,
+                    big_m=1e6
                     )
 
-    vehicle = Vehicle(v_max  = 5.0,
-                      u_max  = 0.5,
-                      x_init = np.array([1, 1]),
-                      v_init = np.array([0, 0])
+    vehicle = Vehicle(v_max=5.0,
+                      u_max=0.5,
+                      x_init=np.array([1, 1]),
+                      v_init=np.array([0, 0])
                       )
 
     results = Results()
@@ -459,7 +461,7 @@ if __name__ == "__main__":
         model.optimize()
         plan, exec = get_path(model, CONFIG)
         results.update_path(plan, exec)
-        if results.last_exec_point()[0] == MAP.goal[0] and results.last_exec_point()[1] == MAP.goal[1]:
+        if math.isclose(results.last_exec_point()[0], MAP.goal[0], rel_tol=1e-3) and math.isclose(results.last_exec_point()[1], MAP.goal[1], rel_tol=1e-3):
             break
         model = update(model, vehicle, CONFIG)
 
